@@ -191,16 +191,42 @@ void main() {
       outbound: {'type': 'vless', 'server': '127.0.0.1', 'server_port': 1, 'uuid': 'nope'},
     );
 
-    final results = <String, int>{};
-    await LatencyTester(corePath: corePath, workDir: Directory('${tmp.path}\\run')).test(
-      [good, invalid, dead],
-      antiDpi: AntiDpiSettings(),
-      onResult: (p, ms) => results[p.name] = ms,
-    );
+    // The probe leaves this machine, so the outcome for the good server
+    // depends on the network: no internet means nothing to assert about it,
+    // and one slow answer under load deserves a second try.
+    Future<bool> online() async {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.getUrl(Uri.parse('https://www.gstatic.com/generate_204'));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+        return true;
+      } on Object {
+        return false;
+      } finally {
+        client.close(force: true);
+      }
+    }
 
+    var results = <String, int>{};
+    for (var attempt = 0; attempt < 3; attempt++) {
+      results = {};
+      await LatencyTester(corePath: corePath, workDir: Directory('${tmp.path}\\run')).test(
+        [good, invalid, dead],
+        antiDpi: AntiDpiSettings(),
+        onResult: (p, ms) => results[p.name] = ms,
+      );
+      if ((results['good'] ?? -1) >= 0) break;
+    }
+
+    // These hold with or without a network.
     expect(results.keys, unorderedEquals(['good', 'invalid', 'dead']));
-    expect(results['good'], greaterThanOrEqualTo(0));
     expect(results['dead'], -1);
     expect(results['invalid'], -1);
+    if (results['good']! < 0 && !await online()) {
+      markTestSkipped('no internet access to measure a real delay');
+      return;
+    }
+    expect(results['good'], greaterThanOrEqualTo(0));
   });
 }

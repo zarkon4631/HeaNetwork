@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # The release workflow overrides this with the pushed tag
 # (--build-name / --build-number), so the tag is the single source of truth.
-version: 0.1.0+1
+version: 1.0.1+1
 
 environment:
   sdk: ^3.13.5

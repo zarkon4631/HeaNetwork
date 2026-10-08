@@ -170,6 +170,10 @@ class Subscription {
     this.totalBytes,
     this.expireAt,
     this.autoSelect = false,
+    this.updateIntervalHours,
+    this.supportUrl,
+    this.webPageUrl,
+    this.announce,
   }) : id = id ?? newId();
 
   final String id;
@@ -186,6 +190,23 @@ class Subscription {
   /// Connect through a urltest group over every server of this subscription.
   bool autoSelect;
 
+  // What the panel asks of the client, from the response headers.
+  /// `profile-update-interval`: refresh at least this often.
+  int? updateIntervalHours;
+  String? supportUrl;
+  String? webPageUrl;
+
+  /// A message from the provider to show next to the subscription.
+  String? announce;
+
+  /// True when the panel's refresh interval has elapsed.
+  bool isDue(DateTime now) {
+    final hours = updateIntervalHours;
+    final last = updatedAt;
+    if (hours == null || hours <= 0 || last == null) return false;
+    return now.difference(last) >= Duration(hours: hours);
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -196,6 +217,10 @@ class Subscription {
         if (totalBytes != null) 'totalBytes': totalBytes,
         if (expireAt != null) 'expireAt': expireAt!.toIso8601String(),
         'autoSelect': autoSelect,
+        if (updateIntervalHours != null) 'updateIntervalHours': updateIntervalHours,
+        if (supportUrl != null) 'supportUrl': supportUrl,
+        if (webPageUrl != null) 'webPageUrl': webPageUrl,
+        if (announce != null) 'announce': announce,
       };
 
   factory Subscription.fromJson(Map<String, dynamic> j) => Subscription(
@@ -208,5 +233,9 @@ class Subscription {
         totalBytes: (j['totalBytes'] as num?)?.toInt(),
         expireAt: DateTime.tryParse(j['expireAt'] as String? ?? ''),
         autoSelect: j['autoSelect'] as bool? ?? false,
+        updateIntervalHours: (j['updateIntervalHours'] as num?)?.toInt(),
+        supportUrl: j['supportUrl'] as String?,
+        webPageUrl: j['webPageUrl'] as String?,
+        announce: j['announce'] as String?,
       );
 }

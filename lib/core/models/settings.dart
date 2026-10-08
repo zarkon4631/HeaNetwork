@@ -108,6 +108,14 @@ class AntiDpiSettings {
 
 enum AntiDpiPreset { off, balanced, strong, custom }
 
+/// What closing the main window does.
+enum CloseAction {
+  /// Ask every time: cancel, quit or hide to the tray.
+  ask,
+  tray,
+  exit,
+}
+
 const utlsFingerprints = [
   'chrome', 'firefox', 'edge', 'safari', 'ios', 'android', 'random',
   'randomized',
@@ -173,14 +181,19 @@ class AppSettings {
     AntiDpiSettings? antiDpi,
     this.autoConnect = false,
     this.launchAtStartup = false,
-    this.minimizeToTray = true,
+    this.closeAction = CloseAction.ask,
+    this.compactView = false,
+    this.animations = true,
+    this.sendHwid = true,
+    String? installId,
     this.checkUpdates = true,
     this.logLevel = 'info',
     List<PortForward>? portForwards,
     this.selectedProfileId,
     this.selectedSubscriptionId,
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
-        portForwards = portForwards ?? [];
+        portForwards = portForwards ?? [],
+        installId = installId ?? newId() + newId();
 
   String locale;
   String themeMode;
@@ -201,7 +214,22 @@ class AppSettings {
   AntiDpiSettings antiDpi;
   bool autoConnect;
   bool launchAtStartup;
-  bool minimizeToTray;
+
+  /// What the window's close button does (Windows).
+  CloseAction closeAction;
+
+  /// Shrinks the window to just the connect button and speeds (Windows).
+  bool compactView;
+
+  /// Moving background and transitions. Off saves power on weak devices.
+  bool animations;
+
+  /// Identify this device to the subscription server (3x-ui device limit).
+  bool sendHwid;
+
+  /// Random per-install id; the device id of last resort when the OS does
+  /// not provide one.
+  final String installId;
   bool checkUpdates;
   String logLevel;
   List<PortForward> portForwards;
@@ -227,7 +255,11 @@ class AppSettings {
         'antiDpi': antiDpi.toJson(),
         'autoConnect': autoConnect,
         'launchAtStartup': launchAtStartup,
-        'minimizeToTray': minimizeToTray,
+        'closeAction': closeAction.name,
+        'compactView': compactView,
+        'animations': animations,
+        'sendHwid': sendHwid,
+        'installId': installId,
         'checkUpdates': checkUpdates,
         'logLevel': logLevel,
         'portForwards': portForwards.map((e) => e.toJson()).toList(),
@@ -254,7 +286,14 @@ class AppSettings {
             : null,
         autoConnect: j['autoConnect'] as bool? ?? false,
         launchAtStartup: j['launchAtStartup'] as bool? ?? false,
-        minimizeToTray: j['minimizeToTray'] as bool? ?? true,
+        closeAction: CloseAction.values.firstWhere(
+          (e) => e.name == j['closeAction'],
+          orElse: () => CloseAction.ask,
+        ),
+        compactView: j['compactView'] as bool? ?? false,
+        animations: j['animations'] as bool? ?? true,
+        sendHwid: j['sendHwid'] as bool? ?? true,
+        installId: j['installId'] as String?,
         checkUpdates: j['checkUpdates'] as bool? ?? true,
         logLevel: j['logLevel'] as String? ?? 'info',
         portForwards: (j['portForwards'] as List? ?? const [])

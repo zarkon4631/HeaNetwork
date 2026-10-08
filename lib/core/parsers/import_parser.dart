@@ -5,6 +5,7 @@ import 'link_utils.dart';
 import 'misc_links.dart';
 import 'v2ray_links.dart';
 import 'wireguard_conf.dart';
+import 'xray_json.dart';
 
 export 'link_utils.dart' show LinkParseException;
 
@@ -129,6 +130,23 @@ ImportResult _fromJson(Object? json) {
       final p = _fromSingBoxOutbound(Map<String, dynamic>.from(item));
       if (p != null) result.profiles.add(p);
     }
+  }
+
+  // A 3x-ui JSON subscription: one full Xray config per server.
+  final xrayConfigs = [
+    if (looksLikeXrayConfig(json)) json,
+    if (json is List) ...json.where(looksLikeXrayConfig),
+  ];
+  if (xrayConfigs.isNotEmpty) {
+    for (final config in xrayConfigs) {
+      final p = profileFromXrayConfig(Map<String, dynamic>.from(config as Map));
+      if (p == null) {
+        result.errors.add('unsupported Xray outbound');
+      } else {
+        result.profiles.add(p);
+      }
+    }
+    return result;
   }
 
   if (json is List) {

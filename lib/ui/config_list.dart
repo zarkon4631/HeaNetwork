@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,16 +8,34 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/models/profile.dart';
 import '../core/parsers/misc_links.dart';
+import '../core/services/lan_receiver.dart';
 import '../core/services/subscription_service.dart';
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
 import 'widgets.dart';
 
+/// Turns a subscription failure into something a person can act on.
+String describeSubscriptionError(S s, Object error) {
+  if (error is SubscriptionException) {
+    return switch (error.code) {
+      SubscriptionError.deviceLimit => s.deviceLimit,
+      SubscriptionError.deviceIdRequired => s.deviceIdRequired,
+      SubscriptionError.other => '${s.subscriptionFailed}: ${error.message}',
+    };
+  }
+  return '${s.subscriptionFailed}: $error';
+}
+
 void _reportImport(BuildContext context, ImportOutcome outcome) {
   final s = S.of(context);
+  if (outcome.failure != null) {
+    showSnack(context, describeSubscriptionError(s, outcome.failure!));
+    return;
+  }
   if (outcome.added == 0) {
     showSnack(
         context,
@@ -29,7 +48,7 @@ void _reportImport(BuildContext context, ImportOutcome outcome) {
   showSnack(context, '${s.imported(outcome.added)}$skipped');
 }
 
-Future<void> _importText(BuildContext context, String text) async {
+Future<void> importText(BuildContext context, String text) async {
   final state = context.read<AppState>();
   final outcome = await state.importText(text);
   if (context.mounted) _reportImport(context, outcome);
@@ -43,7 +62,7 @@ Future<void> pasteFromClipboard(BuildContext context) async {
     showSnack(context, S.of(context).clipboardEmpty);
     return;
   }
-  await _importText(context, text);
+  await importText(context, text);
 }
 
 Future<void> _importFile(BuildContext context) async {
@@ -59,7 +78,7 @@ Future<void> _importFile(BuildContext context) async {
     if (context.mounted) showSnack(context, S.of(context).nothingImported);
     return;
   }
-  if (context.mounted) await _importText(context, text);
+  if (context.mounted) await importText(context, text);
 }
 
 Future<void> _addSubscription(BuildContext context) async {
@@ -73,10 +92,8 @@ Future<void> _addSubscription(BuildContext context) async {
     if (context.mounted) {
       showSnack(context, s.imported(state.profilesOf(sub.id).length));
     }
-  } on SubscriptionException catch (e) {
-    if (context.mounted) showSnack(context, '${s.subscriptionFailed}: ${e.message}');
   } on Object catch (e) {
-    if (context.mounted) showSnack(context, '${s.subscriptionFailed}: $e');
+    if (context.mounted) showSnack(context, describeSubscriptionError(s, e));
   }
 }
 
@@ -88,17 +105,52 @@ Future<void> _addManualProxy(BuildContext context) async {
   }
 }
 
-/// The "add server" menu with every way to import.
+/// Scans a QR code. A HeaNetwork pairing code from another device (a TV
+/// waiting for a subscription) is answered by sending this device's
+/// configurations there; anything else is imported here.
+Future<void> _scanQr(BuildContext context) async {
+  final text = await Navigator.push<String>(
+      context, MaterialPageRoute(builder: (_) => const _QrScanPage()));
+  if (text == null || !context.mounted) return;
+  if (!isPairingUrl(text)) {
+    await importText(context, text);
+    return;
+  }
+  final s = S.of(context);
+  final state = context.read<AppState>();
+  final payload = <String>[
+    for (final sub in state.subscriptions) sub.url,
+    for (final p in state.profilesOf(null))
+      if (p.link != null) p.link!,
+  ];
+  if (payload.isEmpty) {
+    showSnack(context, s.serversEmptyTitle);
+    return;
+  }
+  final ok = await confirm(context, s.sendToDevice,
+      body: s.sendToDeviceBody(payload.length), action: s.send);
+  if (!ok || !context.mounted) return;
+  try {
+    await sendToDevice(text, payload.join('\n'));
+    if (context.mounted) showSnack(context, s.sent);
+  } on Object catch (e) {
+    if (context.mounted) showSnack(context, '${s.sendFailed}: $e');
+  }
+}
+
+/// The "add" menu with every way to get a configuration into the app.
 Future<void> showAddServerSheet(BuildContext context) {
   final s = S.of(context);
+  final tv = context.read<AppState>().isTv;
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     constraints: const BoxConstraints(maxWidth: 560),
     builder: (sheet) {
       Widget item(IconData icon, String title, String? subtitle,
-          Future<void> Function(BuildContext) run) {
+          Future<void> Function(BuildContext) run, {bool autofocus = false}) {
         return ListTile(
+          autofocus: autofocus,
           leading: Icon(icon),
           title: Text(title),
           subtitle: subtitle == null ? null : Text(subtitle),
@@ -109,116 +161,326 @@ Future<void> showAddServerSheet(BuildContext context) {
         );
       }
 
+      final receive = item(Icons.qr_code_2_rounded, s.receiveFromPhone,
+          s.receiveFromPhoneHint, showReceiveDialog,
+          autofocus: tv);
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            item(Icons.content_paste_rounded, s.pasteFromClipboard, null,
-                pasteFromClipboard),
-            if (Platform.isAndroid)
-              item(Icons.qr_code_scanner_rounded, s.scanQr, null, (c) async {
-                final text = await Navigator.push<String>(
-                    c, MaterialPageRoute(builder: (_) => const _QrScanPage()));
-                if (text != null && c.mounted) await _importText(c, text);
-              }),
-            item(Icons.link_rounded, s.addSubscription, null, _addSubscription),
-            item(Icons.file_open_outlined, s.importFile, s.importFileHint, _importFile),
-            item(Icons.tune_rounded, s.addManually, null, _addManualProxy),
-            const SizedBox(height: 8),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // On a TV typing is painful, so the phone route comes first.
+              if (tv) receive,
+              item(Icons.content_paste_rounded, s.pasteFromClipboard, null,
+                  pasteFromClipboard),
+              if (Platform.isAndroid && !tv)
+                item(Icons.qr_code_scanner_rounded, s.scanQr, null, _scanQr),
+              item(Icons.link_rounded, s.addSubscription, null, _addSubscription),
+              if (!tv) receive,
+              item(Icons.file_open_outlined, s.importFile, s.importFileHint, _importFile),
+              item(Icons.tune_rounded, s.addManually, null, _addManualProxy),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       );
     },
   );
 }
 
-class ServersPage extends StatelessWidget {
-  const ServersPage({super.key});
+/// Shows a QR code another device can scan to send configurations here.
+Future<void> showReceiveDialog(BuildContext context) =>
+    showDialog<void>(context: context, builder: (_) => const _ReceiveDialog());
+
+class _ReceiveDialog extends StatefulWidget {
+  const _ReceiveDialog();
 
   @override
-  Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final s = S.of(context);
-    final own = state.profilesOf(null);
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: Text(s.navServers),
-        actions: [
-          if (state.profiles.isNotEmpty)
-            IconButton(
-              tooltip: s.testAll,
-              onPressed: state.testingLatency ? null : () => state.testLatency(),
-              icon: state.testingLatency
-                  ? const SizedBox.square(
-                      dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.speed_rounded),
-            ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12, left: 4),
-            child: FilledButton.icon(
-              onPressed: () => showAddServerSheet(context),
-              icon: const Icon(Icons.add_rounded, size: 20),
-              label: Text(s.add),
-            ),
-          ),
-        ],
-      ),
-      body: state.profiles.isEmpty && state.subscriptions.isEmpty
-          ? const _EmptyServers()
-          : PageBody(
-              children: [
-                if (own.isNotEmpty)
-                  Section(
-                    title: s.myServers,
-                    children: [for (final p in own) _ServerTile(profile: p)],
-                  ),
-                for (final sub in state.subscriptions) _SubscriptionSection(sub: sub),
-              ],
-            ),
-    );
-  }
+  State<_ReceiveDialog> createState() => _ReceiveDialogState();
 }
 
-class _EmptyServers extends StatelessWidget {
-  const _EmptyServers();
+class _ReceiveDialogState extends State<_ReceiveDialog> {
+  LanReceiver? _receiver;
+  StreamSubscription<String>? _sub;
+  var _starting = true;
+  String? _lastResult;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_starting && _receiver == null) _start();
+  }
+
+  Future<void> _start() async {
+    final russian = Localizations.localeOf(context).languageCode == 'ru';
+    LanReceiver? receiver;
+    try {
+      receiver = await LanReceiver.start(russian: russian);
+    } on Object {
+      receiver = null;
+    }
+    if (!mounted) {
+      await receiver?.close();
+      return;
+    }
+    setState(() {
+      _receiver = receiver;
+      _starting = false;
+    });
+    _sub = receiver?.received.listen(_onText);
+  }
+
+  Future<void> _onText(String text) async {
+    final state = context.read<AppState>();
+    final s = S.of(context);
+    final outcome = await state.importText(text);
+    if (!mounted) return;
+    setState(() {
+      _lastResult = outcome.failure != null
+          ? describeSubscriptionError(s, outcome.failure!)
+          : (outcome.added > 0 ? s.imported(outcome.added) : s.nothingImported);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _receiver?.close();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
     final theme = Theme.of(context);
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    final receiver = _receiver;
+    final muted = theme.colorScheme.onSurfaceVariant;
+
+    Widget step(int n, String text) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.dns_outlined, size: 56, color: theme.colorScheme.outline),
-              const SizedBox(height: 16),
-              Text(s.serversEmptyTitle,
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Text(s.serversEmptyBody,
+              CircleAvatar(
+                radius: 10,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Text('$n',
+                    style: TextStyle(
+                        fontSize: 11, color: theme.colorScheme.onPrimaryContainer)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Text(text)),
+            ],
+          ),
+        );
+
+    return AlertDialog(
+      title: Text(s.receiveTitle),
+      content: SizedBox(
+        width: 520,
+        child: _starting
+            ? const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()))
+            : receiver == null
+                ? Text(s.receiveNoNetwork)
+                : SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 24,
+                      runSpacing: 16,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                              color: Colors.white, borderRadius: BorderRadius.circular(14)),
+                          child: QrImageView(data: receiver.url, size: 200),
+                        ),
+                        SizedBox(
+                          width: 250,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              step(1, s.receiveStep1),
+                              step(2, s.receiveStep2),
+                              step(3, s.receiveStep3),
+                              const SizedBox(height: 6),
+                              SelectableText(receiver.url,
+                                  style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  if (_lastResult == null)
+                                    const SizedBox.square(
+                                        dimension: 14,
+                                        child: CircularProgressIndicator(strokeWidth: 2))
+                                  else
+                                    Icon(Icons.check_circle_rounded,
+                                        size: 18, color: theme.colorScheme.primary),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                      child: Text(_lastResult ?? s.receiveWaiting,
+                                          style: theme.textTheme.bodyMedium)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+      ),
+      actions: [
+        FilledButton(
+          autofocus: true,
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.close),
+        ),
+      ],
+    );
+  }
+}
+
+/// Every configuration the user has, grouped by subscription, with the
+/// actions that apply to all of them in the header.
+class ConfigList extends StatelessWidget {
+  const ConfigList({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final s = S.of(context);
+    final theme = Theme.of(context);
+    final own = state.profilesOf(null);
+    final empty = state.profiles.isEmpty && state.subscriptions.isEmpty;
+
+    Future<void> refreshAll() async {
+      if (state.subscriptions.isEmpty) {
+        showSnack(context, s.noSubscriptions);
+        return;
+      }
+      final failures = await state.refreshAllSubscriptions();
+      if (!context.mounted) return;
+      showSnack(
+          context,
+          failures.isEmpty
+              ? s.subsRefreshed
+              : describeSubscriptionError(s, failures.first));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LayoutBuilder(builder: (context, c) {
+          final labels = c.maxWidth >= 430;
+          Widget action(IconData icon, String label, String tooltip, bool busy,
+              VoidCallback? onPressed) {
+            final glyph = busy
+                ? const SizedBox.square(
+                    dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(icon, size: 18);
+            return Tooltip(
+              message: tooltip,
+              child: labels
+                  ? FilledButton.tonalIcon(
+                      onPressed: busy ? null : onPressed, icon: glyph, label: Text(label))
+                  : IconButton.filledTonal(onPressed: busy ? null : onPressed, icon: glyph),
+            );
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(s.configs,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                ),
+                action(Icons.sync_rounded, s.refreshShort, s.refreshSubs,
+                    state.refreshingSubscriptions, refreshAll),
+                const SizedBox(width: 6),
+                action(Icons.speed_rounded, s.pingShort, s.pingAll, state.testingLatency,
+                    state.profiles.isEmpty ? null : () => state.testLatency()),
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: s.addServer,
+                  child: IconButton.filled(
+                    onPressed: () => showAddServerSheet(context),
+                    icon: const Icon(Icons.add_rounded),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        if (empty)
+          const _EmptyConfigs()
+        else ...[
+          if (own.isNotEmpty)
+            Section(
+              title: s.myServers,
+              children: [for (final p in own) _ServerTile(profile: p)],
+            ),
+          for (final sub in state.subscriptions) _SubscriptionSection(sub: sub),
+        ],
+      ],
+    );
+  }
+}
+
+class _EmptyConfigs extends StatelessWidget {
+  const _EmptyConfigs();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final theme = Theme.of(context);
+    final tv = context.read<AppState>().isTv;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.dns_outlined, size: 44, color: theme.colorScheme.outline),
+            const SizedBox(height: 12),
+            Text(s.serversEmptyTitle,
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
+              child: Text(s.serversEmptyBody,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium
                       ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: () => pasteFromClipboard(context),
-                icon: const Icon(Icons.content_paste_rounded),
-                label: Text(s.pasteFromClipboard),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => _addSubscription(context),
-                child: Text(s.addSubscription),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                if (tv)
+                  FilledButton.icon(
+                    autofocus: true,
+                    onPressed: () => showReceiveDialog(context),
+                    icon: const Icon(Icons.qr_code_2_rounded),
+                    label: Text(s.receiveFromPhone),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: () => pasteFromClipboard(context),
+                    icon: const Icon(Icons.content_paste_rounded),
+                    label: Text(s.pasteFromClipboard),
+                  ),
+                OutlinedButton(
+                  onPressed: () => _addSubscription(context),
+                  child: Text(s.addSubscription),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -246,6 +508,7 @@ class _SubscriptionSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final s = S.of(context);
+    final theme = Theme.of(context);
     final servers = state.profilesOf(sub.id);
     final auto = state.autoSubscription?.id == sub.id;
 
@@ -254,7 +517,7 @@ class _SubscriptionSection extends StatelessWidget {
         await state.refreshSubscription(sub);
         if (context.mounted) showSnack(context, s.imported(state.profilesOf(sub.id).length));
       } on Object catch (e) {
-        if (context.mounted) showSnack(context, '${s.subscriptionFailed}: $e');
+        if (context.mounted) showSnack(context, describeSubscriptionError(s, e));
       }
     }
 
@@ -276,6 +539,9 @@ class _SubscriptionSection extends StatelessWidget {
                 case 'copy':
                   await Clipboard.setData(ClipboardData(text: sub.url));
                   if (context.mounted) showSnack(context, s.copied);
+                case 'support':
+                  await launchUrl(Uri.parse(sub.supportUrl!),
+                      mode: LaunchMode.externalApplication);
                 case 'delete':
                   if (await confirm(context, s.deleteSubscriptionQ)) {
                     state.deleteSubscription(sub);
@@ -285,17 +551,35 @@ class _SubscriptionSection extends StatelessWidget {
             itemBuilder: (_) => [
               PopupMenuItem(value: 'rename', child: Text(s.rename)),
               PopupMenuItem(value: 'copy', child: Text(s.copy)),
+              if (sub.supportUrl != null)
+                PopupMenuItem(value: 'support', child: Text(s.support)),
               PopupMenuItem(value: 'delete', child: Text(s.delete)),
             ],
           ),
         ],
       ),
       children: [
+        if (sub.announce != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.campaign_outlined, size: 16, color: theme.colorScheme.tertiary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(sub.announce!,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.tertiary)),
+                ),
+              ],
+            ),
+          ),
         if (servers.length > 1)
           _SelectableRow(
             selected: auto,
             onTap: () => state.selectAuto(sub.id),
-            leading: const Icon(Icons.auto_awesome_rounded, size: 20),
+            leading: const Icon(Icons.auto_awesome_rounded, size: 18),
             title: s.autoSelect,
             subtitle: s.autoSelectOf(sub.name),
           ),
@@ -326,40 +610,46 @@ class _SelectableRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? scheme.primaryContainer.withValues(alpha: 0.45) : Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-          child: Row(
-            children: [
-              Icon(
-                selected
-                    ? Icons.radio_button_checked_rounded
-                    : Icons.radio_button_unchecked_rounded,
-                color: selected ? scheme.primary : scheme.outline,
-              ),
-              const SizedBox(width: 12),
-              if (leading != null) ...[leading!, const SizedBox(width: 10)],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontWeight: selected ? FontWeight.w600 : FontWeight.w500)),
-                    Text(subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
-                  ],
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      color: selected ? scheme.primary.withValues(alpha: 0.14) : Colors.transparent,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 2, 6),
+            child: Row(
+              children: [
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 20,
+                  color: selected ? scheme.primary : scheme.outline,
                 ),
-              ),
-              trailing ?? const SizedBox(width: 12),
-            ],
+                const SizedBox(width: 10),
+                if (leading != null) ...[leading!, const SizedBox(width: 8)],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: selected ? FontWeight.w600 : FontWeight.w500)),
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                trailing ?? const SizedBox(width: 12),
+              ],
+            ),
           ),
         ),
       ),
@@ -396,6 +686,7 @@ class _ServerTile extends StatelessWidget {
             ),
           LatencyBadge(profile.latencyMs, testing: state.testingLatency),
           PopupMenuButton<String>(
+            iconSize: 20,
             onSelected: (v) async {
               switch (v) {
                 case 'test':
@@ -661,6 +952,7 @@ class _QrScanPageState extends State<_QrScanPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(title: Text(s.scanQr)),
       body: Stack(
         alignment: Alignment.bottomCenter,

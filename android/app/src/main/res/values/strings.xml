@@ -4,4 +4,11 @@
     <string name="vpn_channel">VPN connection</string>
     <string name="vpn_running">Connected</string>
     <string name="vpn_disconnect">Disconnect</string>
+    <string name="widget_description">Connect and switch servers from the home screen</string>
+    <string name="widget_off">Disconnected</string>
+    <string name="widget_connecting">Connecting…</string>
+    <string name="widget_empty">Add a server in the app</string>
+    <string name="widget_toggle">Connect or disconnect</string>
+    <string name="widget_prev">Previous server</string>
+    <string name="widget_next">Next server</string>
 </resources>

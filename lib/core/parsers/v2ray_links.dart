@@ -46,6 +46,8 @@ Map<String, dynamic>? tlsFromParams(
       'enabled': true,
       'public_key': get('pbk') ?? '',
       'short_id': get('sid') ?? '',
+      // Post-quantum key exchange, when the server advertises it.
+      if (flag('support-x25519mlkem768')) 'support_x25519mlkem768': true,
     };
   }
 
@@ -124,6 +126,9 @@ Map<String, dynamic>? transportFromParams(Map<String, String> p) {
       };
       final extra = _decodeExtra(get('extra'));
       if (extra != null) t.addAll(xhttpExtra(extra));
+      // 3x-ui also puts the padding range straight into the link.
+      final padding = get('x_padding_bytes');
+      if (padding != null) t['x_padding_bytes'] = padding;
       // The core rejects XHTTP without padding; this is Xray's default.
       t['x_padding_bytes'] ??= xhttpDefaultPadding;
       return compact(t);
@@ -262,7 +267,43 @@ Map<String, dynamic> xhttpExtra(Map<String, dynamic> e) {
   return out;
 }
 
-void _applyStream(Map<String, dynamic> out, Map<String, String> p, String host,
+/// Applies the server's own anti-DPI wishes, carried as Xray's "finalmask"
+/// (the `fm` link parameter, `streamSettings.finalmask` in JSON configs).
+///
+/// A TCP `fragment` mask becomes TLS ClientHello fragmentation on this
+/// profile. It is stored in the profile itself, so it stays on whatever the
+/// app-wide anti-DPI preset is. UDP noise masks have no counterpart in the
+/// core and are skipped; salamander arrives separately as `obfs`.
+void applyFinalMask(Map<String, dynamic> out, Object? finalMask) {
+  Object? fm = finalMask;
+  if (fm is String) {
+    if (fm.isEmpty) return;
+    try {
+      fm = jsonDecode(fm);
+    } on FormatException {
+      return;
+    }
+  }
+  if (fm is! Map) return;
+  final tls = out['tls'];
+  if (tls is! Map<String, dynamic> || tls['enabled'] != true) return;
+  final tcp = fm['tcp'];
+  if (tcp is! List) return;
+  for (final mask in tcp) {
+    if (mask is! Map || mask['type'] != 'fragment') continue;
+    tls['fragment'] = true;
+    final settings = mask['settings'];
+    final delay = settings is Map ? (settings['delay'] ?? settings['interval']) : null;
+    // "10-20" (ms) or a number: the upper bound is the safe pause.
+    final upper = RegExp(r'(\d+)\s*$').firstMatch('${delay ?? ''}')?.group(1);
+    final ms = int.tryParse(upper ?? '');
+    if (ms != null && ms > 0) tls['fragment_fallback_delay'] = '${ms}ms';
+    return;
+  }
+}
+
+/// Fills `tls` and `transport` of [out] from share-link style parameters.
+void applyStream(Map<String, dynamic> out, Map<String, String> p, String host,
     {bool forceTls = false}) {
   final transport = transportFromParams(p);
   final tls = tlsFromParams(p, host: host, forceTls: forceTls);
@@ -276,6 +317,7 @@ void _applyStream(Map<String, dynamic> out, Map<String, String> p, String host,
     out['tls'] = tls;
   }
   if (transport != null) out['transport'] = transport;
+  applyFinalMask(out, p['fm']);
 }
 
 String _nameOr(String name, String host, int port) =>
@@ -302,7 +344,7 @@ ProxyProfile parseVless(String link) {
   if (encryption != null && encryption != 'none') out['encryption'] = encryption;
   final pe = l.q('packetEncoding');
   if (pe != null) out['packet_encoding'] = pe == 'none' ? '' : pe;
-  _applyStream(out, l.query, l.host);
+  applyStream(out, l.query, l.host);
   return ProxyProfile(
     name: _nameOr(l.name, l.host, l.port),
     type: Protocol.vless,
@@ -324,7 +366,7 @@ ProxyProfile parseTrojan(String link) {
     'password': l.userInfo,
   };
   // Trojan is TLS unless the link explicitly says otherwise.
-  _applyStream(out, l.query, l.host, forceTls: l.q('security') == null);
+  applyStream(out, l.query, l.host, forceTls: l.q('security') == null);
   return ProxyProfile(
     name: _nameOr(l.name, l.host, l.port),
     type: Protocol.trojan,
@@ -377,7 +419,9 @@ ProxyProfile parseVmess(String link) {
   };
   if (p['type'] == 'grpc') p['serviceName'] = s('path');
   if (p['type'] == 'kcp') p['seed'] = s('path');
-  _applyStream(out, p, host);
+  final fm = j['fm'];
+  if (fm != null) p['fm'] = fm is String ? fm : jsonEncode(fm);
+  applyStream(out, p, host);
   return ProxyProfile(
     name: _nameOr(s('ps'), host, port),
     type: Protocol.vmess,

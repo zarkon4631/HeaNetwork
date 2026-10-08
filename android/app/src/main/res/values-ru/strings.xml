@@ -3,4 +3,11 @@
     <string name="vpn_channel">VPN-подключение</string>
     <string name="vpn_running">Подключено</string>
     <string name="vpn_disconnect">Отключить</string>
+    <string name="widget_description">Подключение и выбор сервера с главного экрана</string>
+    <string name="widget_off">Отключено</string>
+    <string name="widget_connecting">Подключение…</string>
+    <string name="widget_empty">Добавьте сервер в приложении</string>
+    <string name="widget_toggle">Подключить или отключить</string>
+    <string name="widget_prev">Предыдущий сервер</string>
+    <string name="widget_next">Следующий сервер</string>
 </resources>

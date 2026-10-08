@@ -47,7 +47,7 @@ class PageBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
       children: [
         Center(
           child: ConstrainedBox(
@@ -82,14 +82,14 @@ class Section extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Card(
         clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+              padding: const EdgeInsets.fromLTRB(14, 10, 6, 4),
               child: Row(
                 children: [
                   Expanded(
@@ -97,8 +97,8 @@ class Section extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(title,
-                            style: theme.textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600)),
+                            style: theme.textTheme.titleSmall
+                                ?.copyWith(fontSize: 15, fontWeight: FontWeight.w600)),
                         if (subtitle != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 2),
@@ -114,7 +114,7 @@ class Section extends StatelessWidget {
               ),
             ),
             ...children,
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
           ],
         ),
       ),
@@ -234,12 +234,14 @@ void showSnack(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
-Future<bool> confirm(BuildContext context, String title, {String? action}) async {
+Future<bool> confirm(BuildContext context, String title,
+    {String? body, String? action}) async {
   final s = S.of(context);
   return await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(title),
+          content: body == null ? null : SizedBox(width: 400, child: Text(body)),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false), child: Text(s.cancel)),

@@ -8,6 +8,17 @@ const _amneziaInts = ['jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4'];
 const _amneziaHeaders = ['h1', 'h2', 'h3', 'h4'];
 const _amneziaStrings = ['i1', 'i2', 'i3', 'i4', 'i5'];
 
+/// AmneziaWG 3.x settings: `.conf` key (lower-cased) to core option name.
+/// The values are a number or an `a-b` range.
+const _amneziaRanges = {
+  'contentpaddingaddition': 'content_padding_addition',
+  'rekeyaftertime': 'rekey_after_time',
+  'rekeytimeout': 'rekey_timeout',
+  'rejectaftertime': 'reject_after_time',
+  'keepalivetimeout': 'keepalive_timeout',
+  'maxhandshakeattempts': 'max_handshake_attempts',
+};
+
 bool looksLikeWireGuardConf(String text) =>
     RegExp(r'^\s*\[Interface\]', multiLine: true, caseSensitive: false)
         .hasMatch(text) &&
@@ -52,6 +63,14 @@ Map<String, dynamic>? _amnezia(Map<String, String> iface) {
     final v = iface[k]?.trim();
     if (v != null && v.isNotEmpty) a[k] = v;
   }
+  final protectionKey = iface['headerprotectionkey']?.trim();
+  if (protectionKey != null && protectionKey.isNotEmpty) {
+    a['header_protection_key'] = protectionKey;
+  }
+  _amneziaRanges.forEach((confKey, option) {
+    final raw = iface[confKey]?.trim();
+    if (raw != null && raw.isNotEmpty) a[option] = int.tryParse(raw) ?? raw;
+  });
   return a.isEmpty ? null : a;
 }
 
@@ -59,15 +78,27 @@ Map<String, dynamic>? _amnezia(Map<String, String> iface) {
 ProxyProfile parseWireGuardConf(String text, {String? name}) {
   final sections = <String, List<Map<String, String>>>{};
   Map<String, String>? current;
+  // 3x-ui writes the server's remark as a comment right above [Peer].
+  String? comment;
+  String? remark;
   for (final rawLine in const LineSplitter().convert(text)) {
-    final line = rawLine.split('#').first.trim();
+    final trimmed = rawLine.trim();
+    if (trimmed.startsWith('#')) {
+      comment = trimmed.substring(1).trim();
+      continue;
+    }
+    final line = trimmed.split(' #').first.trim();
     if (line.isEmpty) continue;
     final header = RegExp(r'^\[(\w+)\]$').firstMatch(line);
     if (header != null) {
       current = {};
-      sections.putIfAbsent(header.group(1)!.toLowerCase(), () => []).add(current);
+      final section = header.group(1)!.toLowerCase();
+      sections.putIfAbsent(section, () => []).add(current);
+      if (section == 'peer' && (comment?.isNotEmpty ?? false)) remark ??= comment;
+      comment = null;
       continue;
     }
+    comment = null;
     final eq = line.indexOf('=');
     if (eq < 0 || current == null) continue;
     current[line.substring(0, eq).trim().toLowerCase()] =
@@ -119,10 +150,9 @@ ProxyProfile parseWireGuardConf(String text, {String? name}) {
     'amnezia': amnezia,
   });
   final first = outPeers.first;
+  final title = [name, remark].where((n) => n != null && n.isNotEmpty).firstOrNull;
   return ProxyProfile(
-    name: name?.isNotEmpty == true
-        ? name!
-        : '${first['address']}:${first['port']}',
+    name: title ?? '${first['address']}:${first['port']}',
     type: amnezia == null ? Protocol.wireguard : Protocol.amneziawg,
     outbound: out,
     link: text,
@@ -169,16 +199,28 @@ ProxyProfile parseWireGuardLink(String link) {
   );
 }
 
-/// An AmneziaVPN share key: `vpn://` + base64url of a Qt `qCompress` blob
-/// (4-byte big-endian length, then zlib) holding the app's JSON config.
+/// A `vpn://` key. Two things travel under this scheme:
+///  - what 3x-ui emits for AmneziaWG: base64url of the plain `.conf` text;
+///  - what the AmneziaVPN app shares: base64url of a Qt `qCompress` blob
+///    (4-byte big-endian length, then zlib) holding the app's JSON config.
 ProxyProfile parseAmneziaKey(String link) {
-  var b64 = link.substring(link.indexOf('://') + 3).trim();
-  b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
+  var b64 = link.substring(link.indexOf('://') + 3).trim().split('#').first;
+  b64 = b64.replaceAll('-', '+').replaceAll('_', '/').replaceAll('=', '');
   b64 = b64.padRight(b64.length + (4 - b64.length % 4) % 4, '=');
+
+  final List<int> bytes;
+  try {
+    bytes = base64.decode(b64);
+  } on FormatException {
+    throw LinkParseException('Amnezia: cannot decode key');
+  }
+  final plain = utf8.decode(bytes, allowMalformed: true);
+  if (looksLikeWireGuardConf(plain)) {
+    return parseWireGuardConf(plain)..link = link;
+  }
 
   Map<String, dynamic> root;
   try {
-    final bytes = base64.decode(b64);
     final json = utf8.decode(zlib.decode(bytes.sublist(4)));
     root = Map<String, dynamic>.from(jsonDecode(json) as Map);
   } on Object {

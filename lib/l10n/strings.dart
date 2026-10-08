@@ -287,6 +287,78 @@ class S {
   String get runningAsAdmin =>
       _t('Запущено с правами администратора', 'Running as administrator');
 
+  // ---- home (1.0.1)
+  String get configs => _t('Конфигурации', 'Configurations');
+  String get refreshSubs => _t('Обновить подписки', 'Refresh subscriptions');
+  String get refreshShort => _t('Обновить', 'Refresh');
+  String get pingAll => _t('Пинг всех', 'Ping all');
+  String get pingShort => _t('Пинг', 'Ping');
+  String get subsRefreshed => _t('Подписки обновлены', 'Subscriptions refreshed');
+  String get noSubscriptions =>
+      _t('Подписок пока нет', 'There are no subscriptions yet');
+  String get deviceLimit => _t(
+      'Достигнут лимит устройств для этой подписки. Отключите другое устройство в панели или обратитесь к администратору.',
+      'The device limit of this subscription is reached. Remove another device in the panel or contact the administrator.');
+  String get deviceIdRequired => _t(
+      'Сервер требует идентификатор устройства. Включите «Отправлять HWID» в настройках.',
+      'The server requires a device id. Turn on “Send HWID” in settings.');
+  String get support => _t('Поддержка', 'Support');
+  String get themeToggle => _t('Светлая / тёмная тема', 'Light / dark theme');
+  String get compactView => _t('Компактный вид', 'Compact view');
+  String get fullView => _t('Обычный вид', 'Full view');
+  String get modeProxyShort => _t('Прокси', 'Proxy');
+  String get modeTunShort => _t('VPN', 'VPN');
+  String get total => _t('Всего', 'Total');
+
+  // ---- close dialog
+  String get closeTitle => _t('Закрыть HeaNetwork?', 'Close HeaNetwork?');
+  String get closeBody => _t(
+      'Приложение может остаться в трее и держать соединение, либо завершиться полностью.',
+      'The app can stay in the tray and keep the connection, or quit completely.');
+  String get closeQuit => _t('Закрыть полностью', 'Quit completely');
+  String get closeToTray => _t('Свернуть в трей', 'Minimize to tray');
+  String get rememberChoice => _t('Запомнить выбор', 'Remember my choice');
+  String get closeBehaviour => _t('При закрытии окна', 'When the window is closed');
+  String get closeAsk => _t('Спрашивать', 'Ask');
+
+  // ---- settings (1.0.1)
+  String get animations => _t('Анимация фона', 'Animated background');
+  String get animationsHint => _t(
+      'Отключите на слабых устройствах или для экономии заряда',
+      'Turn off on weak devices or to save battery');
+  String get sendHwid => _t('Отправлять HWID в панель', 'Send HWID to the panel');
+  String get sendHwidHint => _t(
+      'Идентификатор устройства для лимита устройств в 3x-ui. Передаётся только серверу подписки',
+      'A device id for the 3x-ui device limit. Sent to the subscription server only');
+  String deviceId(String id) => _t('ID устройства: $id', 'Device id: $id');
+  String get profileWins => _t(
+      'Параметры, заданные в самом сервере или подписке, всегда имеют приоритет: приложение только добавляет недостающее.',
+      'Settings carried by the server or subscription always take priority: the app only adds what is missing.');
+
+  // ---- send / receive by QR
+  String get receiveFromPhone => _t('Получить с телефона (QR)', 'Receive from a phone (QR)');
+  String get receiveFromPhoneHint => _t(
+      'Удобно для телевизора: отсканируйте код и вставьте подписку на телефоне',
+      'Handy on a TV: scan the code and paste the subscription on your phone');
+  String get receiveTitle => _t('Отправьте подписку с телефона', 'Send a subscription from your phone');
+  String get receiveStep1 => _t(
+      'Подключите телефон к той же сети Wi-Fi', 'Connect the phone to the same Wi-Fi network');
+  String get receiveStep2 =>
+      _t('Отсканируйте QR-код камерой телефона', 'Scan the QR code with the phone camera');
+  String get receiveStep3 => _t(
+      'Вставьте ссылку подписки или сервера и нажмите «Отправить»',
+      'Paste the subscription or server link and press “Send”');
+  String get receiveWaiting => _t('Ожидание телефона…', 'Waiting for the phone…');
+  String get receiveNoNetwork => _t(
+      'Устройство не подключено к локальной сети', 'This device is not connected to a local network');
+  String get sendToDevice => _t('Отправить на другое устройство', 'Send to another device');
+  String sendToDeviceBody(int n) => _t(
+      'Отсканирован код HeaNetwork на другом устройстве. Отправить туда подписки и серверы ($n)?',
+      'This is a HeaNetwork code from another device. Send your subscriptions and servers ($n) there?');
+  String get send => _t('Отправить', 'Send');
+  String get sent => _t('Отправлено', 'Sent');
+  String get sendFailed => _t('Не удалось отправить', 'Could not send');
+
   // ---- tray
   String get trayShow => _t('Открыть HeaNetwork', 'Open HeaNetwork');
   String get trayConnect => _t('Подключить', 'Connect');

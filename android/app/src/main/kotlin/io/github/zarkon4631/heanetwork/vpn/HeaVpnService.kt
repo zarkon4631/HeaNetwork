@@ -23,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.github.zarkon4631.heanetwork.MainActivity
 import io.github.zarkon4631.heanetwork.R
+import io.github.zarkon4631.heanetwork.widget.HeaWidgetProvider
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.CommandServer
@@ -87,7 +88,17 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         private val main = Handler(Looper.getMainLooper())
         private var libboxReady = false
 
+        // For telling the home-screen widget about status changes.
+        @Volatile
+        private var appContext: Context? = null
+
+        /**
+         * Starts the VPN with [config]. If it is already running, the core
+         * is restarted with the new configuration (switching servers from
+         * the widget).
+         */
         fun start(context: Context, config: String) {
+            appContext = context.applicationContext
             pendingConfig = config
             ContextCompat.startForegroundService(
                 context,
@@ -96,6 +107,7 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
 
         fun stop(context: Context) {
+            appContext = context.applicationContext
             if (status == STOPPED) return
             context.startService(
                 Intent(context, HeaVpnService::class.java).setAction(ACTION_STOP),
@@ -104,7 +116,10 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         private fun publish(newStatus: String, error: String? = null) {
             status = newStatus
-            main.post { onStatus?.invoke(newStatus, error) }
+            main.post {
+                onStatus?.invoke(newStatus, error)
+                appContext?.let { HeaWidgetProvider.refresh(it) }
+            }
         }
 
         @Synchronized
@@ -144,17 +159,34 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             else -> {
                 val config = pendingConfig
                 pendingConfig = null
-                if (config == null || status != STOPPED) {
-                    // Restarted by the system without a config, or a duplicate start.
-                    if (status == STOPPED) stopSelf()
-                    return START_NOT_STICKY
+                when {
+                    config == null -> {
+                        // Restarted by the system without a config.
+                        if (status == STOPPED) stopSelf()
+                    }
+                    status == STOPPED -> {
+                        publish(STARTING)
+                        goForeground()
+                        worker.execute { startCore(config) }
+                    }
+                    status == RUNNING -> {
+                        // Another server was picked while connected.
+                        publish(STARTING)
+                        worker.execute {
+                            teardown()
+                            startCore(config)
+                        }
+                    }
+                    // Already starting or stopping: the request is dropped.
                 }
-                publish(STARTING)
-                goForeground()
-                worker.execute { startCore(config) }
             }
         }
         return START_NOT_STICKY
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        appContext = applicationContext
     }
 
     override fun onRevoke() = shutdown(null)

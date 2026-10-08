@@ -141,12 +141,37 @@ class SettingsPage extends StatelessWidget {
                     state.updateSettings((x) => x.autoConnect = v, affectsCore: false),
               ),
               if (state.isWindows)
-                SwitchListTile(
-                  title: Text(s.minimizeToTray),
-                  value: st.minimizeToTray,
-                  onChanged: (v) => state
-                      .updateSettings((x) => x.minimizeToTray = v, affectsCore: false),
+                ListTile(
+                  title: Text(s.closeBehaviour),
+                  trailing: DropdownButton<CloseAction>(
+                    value: st.closeAction,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      DropdownMenuItem(value: CloseAction.ask, child: Text(s.closeAsk)),
+                      DropdownMenuItem(value: CloseAction.tray, child: Text(s.closeToTray)),
+                      DropdownMenuItem(value: CloseAction.exit, child: Text(s.closeQuit)),
+                    ],
+                    onChanged: (v) => state
+                        .updateSettings((x) => x.closeAction = v!, affectsCore: false),
+                  ),
                 ),
+              SwitchListTile(
+                title: Text(s.animations),
+                subtitle: Text(s.animationsHint),
+                value: st.animations,
+                onChanged: (v) =>
+                    state.updateSettings((x) => x.animations = v, affectsCore: false),
+              ),
+              SwitchListTile(
+                title: Text(s.sendHwid),
+                subtitle: Text(state.device == null
+                    ? s.sendHwidHint
+                    : '${s.sendHwidHint}\n${s.deviceId(state.device!.hwid)}'),
+                isThreeLine: state.device != null,
+                value: st.sendHwid,
+                onChanged: (v) =>
+                    state.updateSettings((x) => x.sendHwid = v, affectsCore: false),
+              ),
               ListTile(
                 title: Text(s.logLevel),
                 trailing: DropdownButton<String>(
@@ -249,11 +274,27 @@ class _AntiDpiSection extends StatelessWidget {
         ),
         if (hint != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
             child: Text(hint,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.verified_user_outlined,
+                  size: 15, color: theme.colorScheme.tertiary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(s.profileWins,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ),
+            ],
+          ),
+        ),
         if (custom) ...[
           SwitchListTile(
             title: Text(s.tlsRecordFragment),

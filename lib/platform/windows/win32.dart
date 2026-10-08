@@ -113,6 +113,7 @@ bool shellExecute(String file, {String verb = 'open', String args = ''}) {
 // ---- registry ------------------------------------------------------------
 
 const hkeyCurrentUser = 0x80000001;
+const hkeyLocalMachine = 0x80000002;
 const _keyRead = 0x20019;
 const _keyWrite = 0x20006;
 const _regSz = 1;
@@ -146,17 +147,20 @@ final _regCloseKey = _advapi32
 
 /// A value under `HKEY_CURRENT_USER\[path]`. Strings and DWORDs only.
 class RegistryValue {
-  const RegistryValue(this.path, this.name);
+  const RegistryValue(this.path, this.name, {this.hive = hkeyCurrentUser});
   final String path;
   final String name;
+
+  /// The root key; `HKEY_CURRENT_USER` unless stated otherwise.
+  final int hive;
 
   T? _withKey<T>(int access, bool create, T? Function(int key, Arena arena) body) {
     return using((arena) {
       final out = arena<IntPtr>();
       final p = path.toNativeUtf16(allocator: arena);
       final status = create
-          ? _regCreateKey(hkeyCurrentUser, p, 0, nullptr, 0, access, nullptr, out, nullptr)
-          : _regOpenKey(hkeyCurrentUser, p, 0, access, out);
+          ? _regCreateKey(hive, p, 0, nullptr, 0, access, nullptr, out, nullptr)
+          : _regOpenKey(hive, p, 0, access, out);
       if (status != 0) return null;
       try {
         return body(out.value, arena);

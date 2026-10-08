@@ -95,9 +95,11 @@ Map<String, dynamic> hardenOutbound(
   if (alpn is List && alpn.length == 1 && alpn.first == 'h3') return out;
 
   if (a.tlsRecordFragment) tls['record_fragment'] = true;
+  // The preset only ever adds: whatever the profile itself asked for (for
+  // example fragmentation requested by the server's own settings) stays.
   if (a.tlsFragment) {
     tls['fragment'] = true;
-    tls['fragment_fallback_delay'] = '${a.fragmentFallbackDelayMs}ms';
+    tls['fragment_fallback_delay'] ??= '${a.fragmentFallbackDelayMs}ms';
   }
   // uTLS cannot be combined with ECH in the core.
   if (a.utlsFingerprint.isNotEmpty && tls['utls'] == null && tls['ech'] == null) {

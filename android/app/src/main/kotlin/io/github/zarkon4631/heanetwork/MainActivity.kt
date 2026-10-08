@@ -1,7 +1,10 @@
 package io.github.zarkon4631.heanetwork
 
 import android.Manifest
+import android.app.UiModeManager
 import android.content.Intent
+import android.content.res.Configuration
+import android.provider.Settings
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -15,6 +18,7 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.github.zarkon4631.heanetwork.vpn.HeaVpnService
+import io.github.zarkon4631.heanetwork.widget.HeaWidgetProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.Executors
@@ -71,9 +75,32 @@ class MainActivity : FlutterActivity() {
             }
             "status" -> result.success(HeaVpnService.status)
             "abi" -> result.success(Build.SUPPORTED_ABIS.firstOrNull())
+            "device" -> result.success(deviceInfo())
+            "refreshWidget" -> {
+                HeaWidgetProvider.refresh(this)
+                result.success(null)
+            }
             "installApk" -> installApk(call.argument<String>("path"), result)
             else -> result.notImplemented()
         }
+    }
+
+    /**
+     * What the app tells a subscription server about this device, and
+     * whether it is a TV (which changes the layout).
+     */
+    private fun deviceInfo(): Map<String, Any?> {
+        val uiMode = getSystemService(UI_MODE_SERVICE) as UiModeManager
+        val tv = uiMode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+        return mapOf(
+            "id" to Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID),
+            "release" to Build.VERSION.RELEASE,
+            "model" to listOf(Build.MANUFACTURER, Build.MODEL)
+                .filter { !it.isNullOrBlank() }
+                .joinToString(" "),
+            "tv" to tv,
+        )
     }
 
     /** Shows the system's VPN consent dialog when it has not been given yet. */
