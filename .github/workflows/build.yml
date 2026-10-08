@@ -1,0 +1,252 @@
+name: Build
+
+# Every push and pull request is analysed, tested and built for both
+# platforms. Pushing a tag like v1.2.3 additionally publishes a GitHub
+# release, which is what the in-app updater looks for.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.47.6
+  # Matches the toolchain the pinned core is developed and released with.
+  GO_VERSION: 1.26.8
+  NDK_VERSION: r28
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+      number: ${{ steps.v.outputs.number }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            name="${GITHUB_REF_NAME#v}"
+          else
+            name="$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([^+]+).*/\1/')"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          # Monotonic, so a newer build always installs over an older one.
+          echo "number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Building $name ($GITHUB_RUN_NUMBER)"
+
+  test:
+    name: Analyze and test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Fetch the core and rule-sets
+        shell: pwsh
+        run: ./tool/fetch_assets.ps1
+      - run: flutter pub get
+      - run: flutter analyze
+      # Includes end-to-end tests that run traffic through the real core.
+      - run: flutter test
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    needs: version
+    env:
+      VERSION: ${{ needs.version.outputs.name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Fetch the core and rule-sets
+        shell: pwsh
+        run: ./tool/fetch_assets.ps1
+      - name: Build
+        run: >
+          flutter build windows --release
+          --build-name=${{ needs.version.outputs.name }}
+          --build-number=${{ needs.version.outputs.number }}
+      - name: Bundle the core and the C++ runtime
+        shell: pwsh
+        run: |
+          $out = "build/windows/x64/runner/Release"
+          New-Item -ItemType Directory -Force "$out/core" | Out-Null
+          Copy-Item .cache/core/sing-box.exe "$out/core/"
+          Copy-Item .cache/core/LICENSE-sing-box.txt "$out/core/"
+          Copy-Item LICENSE "$out/LICENSE.txt"
+
+          # Without these DLLs the app does not start on a clean Windows.
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory |
+            Sort-Object FullName | Select-Object -Last 1
+          if (-not $crt) { throw "Visual C++ runtime not found under $vs" }
+          foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item (Join-Path $crt.FullName $dll) $out
+          }
+          Get-ChildItem $out | Select-Object Name, Length
+      - name: Smoke-test the bundled core
+        shell: pwsh
+        run: |
+          & build/windows/x64/runner/Release/core/sing-box.exe version
+          if ($LASTEXITCODE -ne 0) { throw "bundled core does not run" }
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" `
+            -DestinationPath "dist/HeaNetwork-$env:VERSION-windows-x64-portable.zip"
+
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (-not (Test-Path $iscc)) {
+              choco install innosetup --no-progress -y
+            }
+          }
+          & $iscc "/DAppVersion=$env:VERSION" installer/windows/heanetwork.iss
+          if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
+          Get-ChildItem dist | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    needs: version
+    env:
+      VERSION: ${{ needs.version.outputs.name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The core library takes ~10 minutes to compile, so it is cached until
+      # the pinned version or the build script changes.
+      - name: Restore the core library
+        id: libbox
+        uses: actions/cache@v4
+        with:
+          path: android/app/libs/libbox.aar
+          key: libbox-${{ hashFiles('tool/core.json', 'tool/build_libbox.sh') }}
+      - uses: actions/setup-go@v5
+        if: steps.libbox.outputs.cache-hit != 'true'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: nttld/setup-ndk@v1
+        if: steps.libbox.outputs.cache-hit != 'true'
+        id: ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+      - name: Build the core library
+        if: steps.libbox.outputs.cache-hit != 'true'
+        run: bash tool/build_libbox.sh
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Fetch rule-sets
+        shell: pwsh
+        run: ./tool/fetch_assets.ps1 -SkipCore
+
+      # Releases must always be signed with the same key, or Android refuses
+      # to install an update over the previous version. Builds without the
+      # secrets (forks, pull requests) fall back to the debug key.
+      - name: Set up release signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::warning::No signing secrets; this build is signed with a debug key."
+            exit 0
+          fi
+          echo "$KEYSTORE" | base64 -d > android/release.p12
+          {
+            echo "storeFile=release.p12"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=heanetwork"
+            echo "keyPassword=$KEYSTORE_PASSWORD"
+          } > android/key.properties
+
+      - name: Build per-ABI APKs
+        run: >
+          flutter build apk --release --split-per-abi
+          --target-platform android-arm,android-arm64,android-x64
+          --build-name=${{ needs.version.outputs.name }}
+          --build-number=${{ needs.version.outputs.number }}
+      - name: Collect per-ABI APKs
+        run: |
+          mkdir -p dist
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "build/app/outputs/flutter-apk/app-$abi-release.apk" \
+               "dist/HeaNetwork-$VERSION-android-$abi.apk"
+          done
+      - name: Build the universal APK
+        run: >
+          flutter build apk --release
+          --target-platform android-arm,android-arm64,android-x64
+          --build-name=${{ needs.version.outputs.name }}
+          --build-number=${{ needs.version.outputs.number }}
+      - name: Collect the universal APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "dist/HeaNetwork-$VERSION-android-universal.apk"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [version, test, windows, android]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum HeaNetwork-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "HeaNetwork ${{ needs.version.outputs.name }}" \
+            --generate-notes

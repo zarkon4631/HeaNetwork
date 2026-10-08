@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar glyph: the "H" of the app icon, as a single-colour shape. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.2,4h1.6c0.66,0 1.2,0.54 1.2,1.2V10h6V5.2C15,4.54 15.54,4 16.2,4h1.6C18.46,4 19,4.54 19,5.2v13.6c0,0.66 -0.54,1.2 -1.2,1.2h-1.6c-0.66,0 -1.2,-0.54 -1.2,-1.2V14H9v4.8C9,19.46 8.46,20 7.8,20H6.2C5.54,20 5,19.46 5,18.8V5.2C5,4.54 5.54,4 6.2,4z" />
+</vector>

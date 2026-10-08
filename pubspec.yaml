@@ -1,0 +1,44 @@
+name: heanetwork
+description: "HeaNetwork - VPN client for Windows and Android (sing-box based)"
+publish_to: 'none'
+
+# The release workflow overrides this with the pushed tag
+# (--build-name / --build-number), so the tag is the single source of truth.
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  provider: ^6.1.5+1
+  path_provider: ^2.1.6
+  http: ^1.6.0
+  crypto: ^3.0.7
+  ffi: ^2.2.0
+  package_info_plus: ^9.0.1
+  url_launcher: ^6.3.3
+  file_selector: ^1.1.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.2
+  window_manager: ^0.5.2
+  # 0.6+ builds a native library through Dart build hooks, which needs a C
+  # toolchain even for `flutter test`. 0.5 is a plain plugin.
+  tray_manager: ">=0.5.0 <0.6.0"
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # Tray icons, loaded by path on Windows.
+    - assets/icons/
+    # Routing rule-sets, fetched by tool/fetch_assets.ps1 (not in git).
+    - assets/rulesets/

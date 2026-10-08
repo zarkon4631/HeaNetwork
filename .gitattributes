@@ -1,0 +1,7 @@
+* text=auto
+# Run on Linux in CI, so they must keep LF endings.
+*.sh text eol=lf
+gradlew text eol=lf
+*.png binary
+*.ico binary
+*.jar binary
