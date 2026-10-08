@@ -9,18 +9,27 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.github.zarkon4631.heanetwork.vpn.DefaultNetworkMonitor
 import io.github.zarkon4631.heanetwork.vpn.HeaVpnService
 import io.github.zarkon4631.heanetwork.widget.HeaWidgetProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -81,8 +90,67 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "installApk" -> installApk(call.argument<String>("path"), result)
+            "tcpPing" -> {
+                val host = call.argument<String>("host").orEmpty()
+                val port = call.argument<Int>("port") ?: 0
+                val timeout = call.argument<Int>("timeout") ?: 3000
+                background.execute {
+                    val ms = runCatching { tcpPing(host, port, timeout) }.getOrDefault(-1)
+                    runOnUiThread { result.success(ms) }
+                }
+            }
             else -> result.notImplemented()
         }
+    }
+
+    /**
+     * The network that carries traffic when no VPN is involved. While a VPN
+     * is up (ours or another app's) this app's own sockets go into it, and
+     * a connection made through a tunnel is answered locally, so its timing
+     * says nothing about the server.
+     */
+    private fun underlyingNetwork(): Network? {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        fun isReal(network: Network): Boolean {
+            val capabilities = cm.getNetworkCapabilities(network) ?: return false
+            return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
+        // What the running VPN service itself sends its traffic through.
+        DefaultNetworkMonitor.defaultNetwork?.takeIf { isReal(it) }?.let { return it }
+        cm.activeNetwork?.takeIf { isReal(it) }?.let { return it }
+        @Suppress("DEPRECATION")
+        return cm.allNetworks.firstOrNull { isReal(it) }
+    }
+
+    /** Milliseconds to open one TCP connection; throws when it cannot be. */
+    private fun connectTime(network: Network?, address: InetAddress, port: Int, timeoutMs: Int): Int {
+        val socket = Socket()
+        try {
+            network?.bindSocket(socket)
+            val started = SystemClock.elapsedRealtimeNanos()
+            socket.connect(InetSocketAddress(address, port), timeoutMs)
+            val elapsed = SystemClock.elapsedRealtimeNanos() - started
+            return ((elapsed + 500_000L) / 1_000_000L).toInt().coerceAtLeast(1)
+        } finally {
+            runCatching { socket.close() }
+        }
+    }
+
+    /**
+     * Milliseconds to open a TCP connection to [host]:[port] over the real
+     * network. Throws when the server cannot be reached.
+     */
+    private fun tcpPing(host: String, port: Int, timeoutMs: Int): Int {
+        val network = underlyingNetwork()
+        val addresses = network?.getAllByName(host) ?: InetAddress.getAllByName(host)
+        val address = addresses.firstOrNull { it is Inet4Address } ?: addresses.first()
+        val first = connectTime(network, address, port, timeoutMs)
+        // A second try smooths over one delayed packet; failing it is not
+        // the server's fault.
+        val second = runCatching { connectTime(network, address, port, timeoutMs) }
+            .getOrDefault(first)
+        return minOf(first, second)
     }
 
     /**

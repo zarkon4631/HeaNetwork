@@ -75,6 +75,7 @@ class AppState extends ChangeNotifier {
     this.autostart,
     this.device,
     this.httpClient,
+    this.tcpProbe,
     bool? elevated,
     Updater? updater,
   })  : elevated = elevated ??
@@ -101,6 +102,9 @@ class AppState extends ChangeNotifier {
 
   /// Used for subscription requests; tests substitute a fake.
   final http.Client? httpClient;
+
+  /// Opens the TCP connections of the delay test; tests substitute a fake.
+  final TcpProbe? tcpProbe;
 
   bool get isWindows => platform == CorePlatform.windows;
   bool get isAndroid => platform == CorePlatform.android;
@@ -269,6 +273,10 @@ class AppState extends ChangeNotifier {
         profiles: using,
         settings: settings,
         routing: routing,
+        serverDomains: {
+          for (final p in profiles)
+            if (InternetAddress.tryParse(p.server) == null) p.server,
+        },
         env: BuildEnv(
           platform: platform,
           ruleSetDir: paths.ruleSets.path.replaceAll('\\', '/'),
@@ -680,6 +688,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Folds or unfolds a group of the list: [sub], or the user's own servers
+  /// when it is null.
+  void toggleCollapsed(Subscription? sub) {
+    if (sub == null) {
+      settings.ownServersCollapsed = !settings.ownServersCollapsed;
+      unawaited(store.saveSettings());
+    } else {
+      sub.collapsed = !sub.collapsed;
+      unawaited(store.saveSubscriptions());
+    }
+    notifyListeners();
+  }
+
   void renameSubscription(Subscription sub, String name) {
     sub.name = name;
     unawaited(store.saveSubscriptions());
@@ -704,6 +725,14 @@ class AppState extends ChangeNotifier {
 
   bool testingLatency = false;
 
+  TcpProbe _platformTcpProbe() {
+    if (isAndroid) return androidTcpProbe;
+    // Looked up once per run: the adapter does not change within seconds.
+    final source = isWindows && Platform.isWindows ? win32.defaultRouteAddress() : null;
+    return (host, port, timeout) =>
+        dartTcpProbe(host, port, timeout, sourceAddress: source);
+  }
+
   Future<void> testLatency([List<ProxyProfile>? only]) async {
     if (testingLatency) return;
     final targets = List.of(only ?? profiles);
@@ -714,24 +743,22 @@ class AppState extends ChangeNotifier {
     }
     notifyListeners();
     try {
+      // Only Windows ships a core that can be run a second time on the side.
       final corePath = paths.corePath;
-      if (isWindows && corePath != null) {
-        await LatencyTester(corePath: corePath, workDir: paths.run).test(
-          targets,
-          antiDpi: settings.antiDpi,
-          elevated: elevated,
-          onResult: (p, ms) {
-            p.latencyMs = ms;
-            notifyListeners();
-          },
-        );
-      } else {
-        // Without a spare core, fall back to a TCP connect probe.
-        await Future.wait(targets.map((p) async {
-          p.latencyMs = await tcpPing(p);
+      final UrlTest? urlTest = isWindows && corePath != null
+          ? (list, onResult) => LatencyTester(corePath: corePath, workDir: paths.run)
+              .test(list, antiDpi: settings.antiDpi, elevated: elevated, onResult: onResult)
+          : null;
+      await measureLatency(
+        targets,
+        mode: settings.pingMode,
+        tcp: tcpProbe ?? _platformTcpProbe(),
+        urlTest: urlTest,
+        onResult: (p, ms) {
+          p.latencyMs = ms;
           notifyListeners();
-        }));
-      }
+        },
+      );
     } on Object catch (e) {
       error = '$e';
     } finally {

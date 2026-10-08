@@ -113,8 +113,18 @@ void main() {
         settings: settings,
         routing: busyRouting(),
         env: env(CorePlatform.windows, elevated: true),
+        serverDomains: const ['nl.example.com', 'de.example.com', 'nl.example.com'],
       );
       await check(c, 'tun-${p.type}-${p.id}');
+
+      // With FakeIP on, the user's own servers still resolve for real, and
+      // that rule comes before the one that fakes everything else.
+      final rules = ((c['dns'] as Map)['rules'] as List).cast<Map<String, dynamic>>();
+      final own = rules.indexWhere((r) => r['domain'] is List);
+      final fake = rules.indexWhere((r) => r['server'] == tagDnsFake);
+      expect(rules[own]['domain'], ['de.example.com', 'nl.example.com']);
+      expect(rules[own]['server'], tagDnsDirect);
+      expect(own, lessThan(fake));
     }
   }, skip: skip, timeout: const Timeout(Duration(minutes: 5)));
 

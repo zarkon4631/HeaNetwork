@@ -196,11 +196,15 @@ Map<String, dynamic> _domainConditions(Iterable<DomainRule> rules,
 /// Builds the full core config for connecting through [profiles]. With one
 /// profile it is used directly; with several they are wrapped in a urltest
 /// group that keeps the fastest one selected.
+///
+/// [serverDomains] are the host names of all the user's servers, connected
+/// or not; they matter only with FakeIP (see below).
 Map<String, dynamic> buildConfig({
   required List<ProxyProfile> profiles,
   required AppSettings settings,
   required RoutingSettings routing,
   required BuildEnv env,
+  Iterable<String> serverDomains = const [],
 }) {
   if (profiles.isEmpty) throw ArgumentError('no profile to connect with');
 
@@ -427,6 +431,12 @@ Map<String, dynamic> buildConfig({
       'inet4_range': '198.18.0.0/15',
       'inet6_range': 'fc00::/18',
     });
+    // The user's own servers keep their real addresses, so the delay test
+    // can still reach them directly while the tunnel is up.
+    final own = serverDomains.where((d) => d.isNotEmpty).toSet().toList()..sort();
+    if (own.isNotEmpty) {
+      dnsRules.add({'domain': own, 'action': 'route', 'server': tagDnsDirect});
+    }
     dnsRules.add({
       'query_type': ['A', 'AAAA'],
       'action': 'route',

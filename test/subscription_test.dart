@@ -145,7 +145,7 @@ void main() {
           ], log: log));
       final sub = await state.addSubscription('https://panel.example/sub/abc');
       expect(log.last.headers['X-HWID'], state.device!.hwid);
-      expect(log.last.headers['User-Agent'], 'HeaNetwork/1.0.1');
+      expect(log.last.headers['User-Agent'], 'HeaNetwork/${state.appVersion}');
 
       state.updateSettings((s) => s.sendHwid = false, affectsCore: false);
       await state.refreshSubscription(sub);

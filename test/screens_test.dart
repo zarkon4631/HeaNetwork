@@ -167,6 +167,69 @@ void main() {
         expect(find.text('No server selected'), findsOneWidget);
       }, variant: variant);
 
+      testWidgets('groups fold down to their header and back', (tester) async {
+        final state = makeState(platform: platform, tv: isTv);
+        state.settings
+          ..locale = 'ru'
+          ..themeMode = 'dark';
+        await pumpApp(tester, state, size: size);
+        final sub = state.subscriptions.single;
+        expect(find.text('Германия · XHTTP'), findsOneWidget);
+        // Each group says how many servers it holds.
+        expect(find.text('5'), findsOneWidget);
+        expect(find.text('2'), findsOneWidget);
+
+        Future<void> tapHeader(String title) async {
+          await tester.ensureVisible(find.text(title));
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.tap(find.text(title));
+          await tester.pump(const Duration(milliseconds: 300));
+        }
+
+        await tapHeader('Hea Premium');
+        expect(sub.collapsed, isTrue);
+        expect(find.text('Германия · XHTTP'), findsNothing);
+        expect(find.text('США · Trojan'), findsNothing);
+        // The selected server sits in the folded group, so the header keeps
+        // naming it (next to the connection panel, which always does).
+        expect(find.text('Нидерланды · Reality'), findsNWidgets(2));
+        expect(find.text('Домашний AmneziaWG'), findsOneWidget,
+            reason: 'the other group is untouched');
+        await shoot(tester, '${label}_home_folded');
+
+        await tapHeader('Мои серверы');
+        expect(state.settings.ownServersCollapsed, isTrue);
+        expect(find.text('Домашний AmneziaWG'), findsNothing);
+        expect(find.text('Hea Premium'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        await tapHeader('Hea Premium');
+        expect(sub.collapsed, isFalse);
+        expect(find.text('Германия · XHTTP'), findsOneWidget);
+      }, variant: variant);
+
+      testWidgets('a folded group still answers its own buttons', (tester) async {
+        final state = makeState(platform: platform, tv: isTv);
+        state.settings.locale = 'ru';
+        state.subscriptions.single.collapsed = true;
+        // Auto-select over the folded subscription is named in its header.
+        state.selectAuto(state.subscriptions.single.id);
+        await pumpApp(tester, state, size: size);
+        expect(find.text('Германия · XHTTP'), findsNothing);
+        expect(find.text('Автовыбор'), findsWidgets);
+
+        // The menu button inside the header opens the menu, not the group.
+        await tester.ensureVisible(find.text('Hea Premium'));
+        await tester.pump(const Duration(milliseconds: 300));
+        final header = find.ancestor(
+            of: find.text('Hea Premium'), matching: find.byType(InkWell));
+        await tester.tap(find.descendant(
+            of: header.first, matching: find.byIcon(Icons.more_vert)));
+        await tester.pumpAndSettle();
+        expect(find.text('Переименовать'), findsOneWidget);
+        expect(state.subscriptions.single.collapsed, isTrue);
+      }, variant: variant);
+
       testWidgets('add menu', (tester) async {
         final state = makeState(platform: platform, tv: isTv);
         state.settings
@@ -271,6 +334,61 @@ void main() {
       await tester.pumpAndSettle();
       expect(state.settings.mode, ConnectionMode.tun);
       expect(find.text('VPN'), findsOneWidget);
+    }, variant: variant);
+
+    testWidgets('the mode switch says what system proxy mode leaves out', (tester) async {
+      final state = makeState();
+      state.settings
+        ..locale = 'ru'
+        ..themeMode = 'dark';
+      await pumpApp(tester, state, size: desktop);
+      final mouse = await tester.createGesture(kind: ui.PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(find.byIcon(Icons.shield_rounded)));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 300));
+      // Command-line tools ignore the Windows proxy setting; say so up front.
+      expect(find.textContaining('консольные программы'), findsOneWidget);
+      expect(find.textContaining('включите режим VPN'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
+    testWidgets('folding animates when animations are on', (tester) async {
+      final state = makeState();
+      state.settings
+        ..locale = 'ru'
+        ..animations = true;
+      await pumpApp(tester, state, size: desktop);
+      await tester.tap(find.text('Hea Premium'));
+      // Mid-flight the group is on its way out; afterwards it is gone.
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(tester.takeException(), isNull);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Германия · XHTTP'), findsNothing);
+      await tester.tap(find.text('Hea Premium'));
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Германия · XHTTP'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
+    testWidgets('the ping method is chosen in settings', (tester) async {
+      final state = makeState();
+      state.settings.locale = 'ru';
+      await pumpApp(tester, state, size: desktop, tab: ShellTab.settings);
+      await tester.dragUntilVisible(find.text('Пинг серверов'),
+          find.byType(Scrollable).last, const Offset(0, -250));
+      expect(state.settings.pingMode, PingMode.tcp);
+      expect(find.textContaining('Время соединения с самим сервером'), findsOneWidget);
+      await tester.tap(find.byType(DropdownButton<PingMode>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Через сервер').last);
+      await tester.pumpAndSettle();
+      expect(state.settings.pingMode, PingMode.url);
+      expect(find.textContaining('Время ответа сайта'), findsOneWidget);
+      // A display preference: nothing about the connection has to restart.
+      expect(state.pendingRestart, isFalse);
     }, variant: variant);
 
     testWidgets('compact view shows only the essentials and can be left', (tester) async {

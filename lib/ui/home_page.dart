@@ -584,6 +584,10 @@ class ModeSlider extends StatelessWidget {
     return Tooltip(
       message: tun ? s.modeTunHint : s.modeProxyHint,
       waitDuration: const Duration(milliseconds: 400),
+      // A paragraph, not a label: keep it a readable column, above the
+      // switch so it does not cover the buttons underneath.
+      constraints: const BoxConstraints(maxWidth: 340),
+      preferBelow: false,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

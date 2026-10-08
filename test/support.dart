@@ -8,6 +8,7 @@ import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/parsers/import_parser.dart';
 import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/services/device_identity.dart';
+import 'package:heanetwork/core/services/latency_tester.dart';
 import 'package:heanetwork/core/services/storage.dart';
 import 'package:heanetwork/core/services/updater.dart';
 import 'package:heanetwork/state/app_state.dart';
@@ -78,6 +79,7 @@ AppState makeState({
   bool tv = false,
   http.Client? client,
   http.Client? subscriptionClient,
+  TcpProbe? tcpProbe,
 }) {
   final dir = Directory.systemTemp.createTempSync('hea_ui_');
   addTearDown(() {
@@ -161,10 +163,11 @@ AppState makeState({
     core: FakeCore(),
     platform: platform,
     paths: AppPaths(support: dir, corePath: r'C:\none\sing-box.exe'),
-    appVersion: '1.0.1',
+    appVersion: '1.0.2',
     elevated: elevated,
     updater: Updater(client: client ?? offlineClient()),
     httpClient: subscriptionClient,
+    tcpProbe: tcpProbe,
     device: DeviceIdentity(
       hwid: DeviceIdentity.hash('test-device'),
       os: tv ? 'Android TV' : (platform == CorePlatform.windows ? 'Windows' : 'Android'),

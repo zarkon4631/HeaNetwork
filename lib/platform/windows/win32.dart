@@ -241,6 +241,85 @@ void notifyProxySettingsChanged() {
   _internetSetOption(0, 37, nullptr, 0); // INTERNET_OPTION_REFRESH
 }
 
+// ---- network -------------------------------------------------------------
+
+final _iphlpapi = DynamicLibrary.open('iphlpapi.dll');
+final _getIpForwardTable = _iphlpapi.lookupFunction<
+    Uint32 Function(Pointer<Uint8>, Pointer<Uint32>, Int32),
+    int Function(Pointer<Uint8>, Pointer<Uint32>, int)>('GetIpForwardTable');
+final _getIpAddrTable = _iphlpapi.lookupFunction<
+    Uint32 Function(Pointer<Uint8>, Pointer<Uint32>, Int32),
+    int Function(Pointer<Uint8>, Pointer<Uint32>, int)>('GetIpAddrTable');
+final _getIfEntry = _iphlpapi.lookupFunction<Uint32 Function(Pointer<Uint8>),
+    int Function(Pointer<Uint8>)>('GetIfEntry');
+
+/// Reads one of the variable-length IP helper tables, or null on failure.
+Pointer<Uint8>? _ipTable(Arena arena,
+    int Function(Pointer<Uint8>, Pointer<Uint32>, int) fetch) {
+  final size = arena<Uint32>();
+  fetch(nullptr, size, 0);
+  // The table can grow between asking for its size and reading it.
+  for (var attempt = 0; attempt < 3 && size.value > 0; attempt++) {
+    final buffer = arena<Uint8>(size.value);
+    final status = fetch(buffer, size, 0);
+    if (status == 0) return buffer;
+    if (status != 122) return null; // ERROR_INSUFFICIENT_BUFFER
+  }
+  return null;
+}
+
+// IF_TYPE_SOFTWARE_LOOPBACK, IF_TYPE_PROP_VIRTUAL (Wintun), IF_TYPE_TUNNEL.
+const _virtualInterfaceTypes = {24, 53, 131};
+
+/// IPv4 address of the adapter that carries traffic when no VPN is involved:
+/// the one with the best default route among real adapters, skipping the
+/// virtual ones VPN clients (this one included) create. A socket bound to
+/// this address leaves through that adapter even while a tunnel has taken
+/// over the routing table. Null when there is no such adapter.
+String? defaultRouteAddress() {
+  return using((arena) {
+    final routes = _ipTable(arena, _getIpForwardTable);
+    final addresses = _ipTable(arena, _getIpAddrTable);
+    if (routes == null || addresses == null) return null;
+
+    const routeSize = 56; // sizeof(MIB_IPFORWARDROW), all DWORDs
+    const ifRowSize = 860; // sizeof(MIB_IFROW)
+    final ifRow = arena<Uint8>(ifRowSize);
+    int? best;
+    var bestMetric = 0;
+    final routeCount = routes.cast<Uint32>().value;
+    for (var i = 0; i < routeCount; i++) {
+      // dwForwardDest, dwForwardMask, .., dwForwardIfIndex@4, .., dwForwardMetric1@9
+      final row = (routes + 4 + i * routeSize).cast<Uint32>();
+      if (row[0] != 0 || row[1] != 0) continue; // not a default route
+      final index = row[4];
+      final metric = row[9];
+      if (best != null && metric >= bestMetric) continue;
+      // MIB_IFROW: wszName[256], dwIndex@512, dwType@516, .., dwOperStatus@544.
+      (ifRow + 512).cast<Uint32>().value = index;
+      if (_getIfEntry(ifRow) != 0) continue;
+      final type = (ifRow + 516).cast<Uint32>().value;
+      final status = (ifRow + 544).cast<Uint32>().value;
+      // Below IF_OPER_STATUS_CONNECTED the adapter is not passing traffic.
+      if (_virtualInterfaceTypes.contains(type) || status < 4) continue;
+      best = index;
+      bestMetric = metric;
+    }
+    if (best == null) return null;
+
+    const addressSize = 24; // sizeof(MIB_IPADDRROW): dwAddr, dwIndex@4, ...
+    final addressCount = addresses.cast<Uint32>().value;
+    for (var i = 0; i < addressCount; i++) {
+      final row = addresses + 4 + i * addressSize;
+      if ((row + 4).cast<Uint32>().value != best) continue;
+      // dwAddr is in network byte order: the bytes read left to right.
+      if (row[0] == 0 || (row[0] == 169 && row[1] == 254)) continue;
+      return '${row[0]}.${row[1]}.${row[2]}.${row[3]}';
+    }
+    return null;
+  });
+}
+
 // ---- file description ----------------------------------------------------
 
 final _verInfoSize = _version.lookupFunction<

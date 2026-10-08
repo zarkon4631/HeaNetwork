@@ -63,7 +63,8 @@ class PageBody extends StatelessWidget {
   }
 }
 
-/// A titled card grouping related settings.
+/// A titled card grouping related settings or list entries. Given
+/// [onToggle], the header folds the card down to itself and back.
 class Section extends StatelessWidget {
   const Section({
     super.key,
@@ -71,6 +72,11 @@ class Section extends StatelessWidget {
     this.subtitle,
     this.trailing,
     required this.children,
+    this.collapsed = false,
+    this.onToggle,
+    this.count,
+    this.collapsedSummary,
+    this.animate = true,
   });
 
   final String title;
@@ -78,9 +84,100 @@ class Section extends StatelessWidget {
   final Widget? trailing;
   final List<Widget> children;
 
+  /// Only the header is shown. Has no effect without [onToggle].
+  final bool collapsed;
+
+  /// Makes the header a button that folds and unfolds the card.
+  final VoidCallback? onToggle;
+
+  /// How many entries the card holds, shown next to the title.
+  final int? count;
+
+  /// Stands in for [children] while folded, e.g. the selected entry.
+  final Widget? collapsedSummary;
+  final bool animate;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final s = S.of(context);
+    final foldable = onToggle != null;
+    final folded = foldable && collapsed;
+    final moving = animate && !MediaQuery.disableAnimationsOf(context);
+
+    final header = Padding(
+      padding: EdgeInsets.fromLTRB(foldable ? 8 : 14, 10, 6, folded ? 10 : 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (foldable) ...[
+                      Tooltip(
+                        message: folded ? s.expand : s.collapse,
+                        child: AnimatedRotation(
+                          turns: folded ? -0.25 : 0,
+                          duration: Duration(milliseconds: moving ? 180 : 0),
+                          child: Icon(Icons.expand_more_rounded,
+                              size: 22, color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Flexible(
+                      child: Text(title,
+                          maxLines: foldable ? 1 : null,
+                          overflow: foldable ? TextOverflow.ellipsis : null,
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                    if (count != null) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Text('$count',
+                            style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: scheme.onSurfaceVariant)),
+                      ),
+                    ],
+                  ],
+                ),
+                // Under the title, past the fold arrow.
+                if (subtitle != null)
+                  Padding(
+                    padding: EdgeInsets.only(top: 2, left: foldable ? 26 : 0),
+                    child: Text(subtitle!,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                  ),
+                if (folded && collapsedSummary != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, left: 26),
+                    child: collapsedSummary,
+                  ),
+              ],
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
+    );
+
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [...children, const SizedBox(height: 4)],
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -88,33 +185,25 @@ class Section extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 6, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(title,
-                            style: theme.textTheme.titleSmall
-                                ?.copyWith(fontSize: 15, fontWeight: FontWeight.w600)),
-                        if (subtitle != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(subtitle!,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant)),
-                          ),
-                      ],
-                    ),
-                  ),
-                  ?trailing,
-                ],
-              ),
-            ),
-            ...children,
-            const SizedBox(height: 4),
+            if (foldable)
+              Semantics(
+                button: true,
+                expanded: !folded,
+                child: InkWell(onTap: onToggle, child: header),
+              )
+            else
+              header,
+            // A zero-length AnimatedSize finishes inside its own layout pass,
+            // which the framework rejects, so "no animation" means no widget.
+            if (foldable && moving)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: folded ? const SizedBox(width: double.infinity) : body,
+              )
+            else if (!folded)
+              body,
           ],
         ),
       ),

@@ -108,6 +108,20 @@ class AntiDpiSettings {
 
 enum AntiDpiPreset { off, balanced, strong, custom }
 
+/// How the delay of a server is measured.
+enum PingMode {
+  /// Time to open a TCP connection to the server itself. Quick, and needs
+  /// nothing to be running. UDP protocols have no TCP port to knock on, so
+  /// they are measured as [url] where that is possible.
+  tcp,
+
+  /// Time of a real request sent through the server.
+  url;
+
+  static PingMode parse(String? v) =>
+      values.firstWhere((e) => e.name == v, orElse: () => tcp);
+}
+
 /// What closing the main window does.
 enum CloseAction {
   /// Ask every time: cancel, quit or hide to the tray.
@@ -188,6 +202,8 @@ class AppSettings {
     String? installId,
     this.checkUpdates = true,
     this.logLevel = 'info',
+    this.pingMode = PingMode.tcp,
+    this.ownServersCollapsed = false,
     List<PortForward>? portForwards,
     this.selectedProfileId,
     this.selectedSubscriptionId,
@@ -232,6 +248,10 @@ class AppSettings {
   final String installId;
   bool checkUpdates;
   String logLevel;
+  PingMode pingMode;
+
+  /// The "my servers" group is folded in the list.
+  bool ownServersCollapsed;
   List<PortForward> portForwards;
 
   /// The server to connect to, or null when [selectedSubscriptionId] names a
@@ -262,6 +282,8 @@ class AppSettings {
         'installId': installId,
         'checkUpdates': checkUpdates,
         'logLevel': logLevel,
+        'pingMode': pingMode.name,
+        'ownServersCollapsed': ownServersCollapsed,
         'portForwards': portForwards.map((e) => e.toJson()).toList(),
         'selectedProfileId': selectedProfileId,
         'selectedSubscriptionId': selectedSubscriptionId,
@@ -296,6 +318,8 @@ class AppSettings {
         installId: j['installId'] as String?,
         checkUpdates: j['checkUpdates'] as bool? ?? true,
         logLevel: j['logLevel'] as String? ?? 'info',
+        pingMode: PingMode.parse(j['pingMode'] as String?),
+        ownServersCollapsed: j['ownServersCollapsed'] as bool? ?? false,
         portForwards: (j['portForwards'] as List? ?? const [])
             .map((e) => PortForward.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),

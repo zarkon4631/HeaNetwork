@@ -68,6 +68,24 @@ class SettingsPage extends StatelessWidget {
                   onChanged: (v) => state.updateSettings((x) => x.tunStack = v!),
                 ),
               ),
+              // Only Windows can measure through a server, so only it has
+              // a choice to offer.
+              if (state.isWindows)
+                ListTile(
+                  title: Text(s.pingMode),
+                  subtitle: Text(
+                      st.pingMode == PingMode.tcp ? s.pingTcpHint : s.pingUrlHint),
+                  trailing: DropdownButton<PingMode>(
+                    value: st.pingMode,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      DropdownMenuItem(value: PingMode.tcp, child: Text(s.pingTcp)),
+                      DropdownMenuItem(value: PingMode.url, child: Text(s.pingUrl)),
+                    ],
+                    onChanged: (v) => state
+                        .updateSettings((x) => x.pingMode = v!, affectsCore: false),
+                  ),
+                ),
             ],
           ),
           Section(

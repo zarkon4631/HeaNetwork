@@ -56,8 +56,8 @@ class S {
   String get modeProxy => _t('Системный прокси', 'System proxy');
   String get modeTun => _t('VPN (весь трафик)', 'VPN (all traffic)');
   String get modeProxyHint => _t(
-      'Только программы, которые используют системный прокси: браузеры и большинство приложений. Права администратора не нужны.',
-      'Only programs that honour the system proxy: browsers and most apps. No administrator rights needed.');
+      'Только программы, которые используют системный прокси: браузеры и большинство приложений. Игры и консольные программы (Claude Code, git, npm) идут мимо VPN — для них включите режим VPN. Права администратора не нужны.',
+      'Only programs that honour the system proxy: browsers and most apps. Games and command-line tools (Claude Code, git, npm) bypass the VPN — switch to VPN mode for those. No administrator rights needed.');
   String get modeTunHint => _t(
       'Весь трафик компьютера, включая игры и программы без поддержки прокси. Нужны права администратора.',
       'All traffic of this computer, including games and programs without proxy support. Needs administrator rights.');
@@ -309,6 +309,19 @@ class S {
   String get modeProxyShort => _t('Прокси', 'Proxy');
   String get modeTunShort => _t('VPN', 'VPN');
   String get total => _t('Всего', 'Total');
+
+  // ---- list groups and ping (1.0.2)
+  String get collapse => _t('Свернуть', 'Collapse');
+  String get expand => _t('Развернуть', 'Expand');
+  String get pingMode => _t('Пинг серверов', 'Server ping');
+  String get pingTcp => _t('TCP', 'TCP');
+  String get pingUrl => _t('Через сервер', 'Through the server');
+  String get pingTcpHint => _t(
+      'Время соединения с самим сервером. Быстро и работает без подключения. WireGuard, Hysteria и TUIC не принимают TCP, для них замер идёт через сервер',
+      'Time to connect to the server itself. Quick, and works while disconnected. WireGuard, Hysteria and TUIC do not accept TCP, so they are measured through the server');
+  String get pingUrlHint => _t(
+      'Время ответа сайта через каждый сервер: показывает задержку, которая будет в работе, но замер дольше',
+      'Time of a real request through each server: the delay you will actually get, but slower to measure');
 
   // ---- close dialog
   String get closeTitle => _t('Закрыть HeaNetwork?', 'Close HeaNetwork?');

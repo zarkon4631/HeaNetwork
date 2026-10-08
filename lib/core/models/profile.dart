@@ -174,12 +174,16 @@ class Subscription {
     this.supportUrl,
     this.webPageUrl,
     this.announce,
+    this.collapsed = false,
   }) : id = id ?? newId();
 
   final String id;
   String name;
   String url;
   DateTime? updatedAt;
+
+  /// Folded in the list: only the header shows, the servers are hidden.
+  bool collapsed;
 
   // From the `subscription-userinfo` response header, when the panel sends it.
   int? uploadBytes;
@@ -221,6 +225,7 @@ class Subscription {
         if (supportUrl != null) 'supportUrl': supportUrl,
         if (webPageUrl != null) 'webPageUrl': webPageUrl,
         if (announce != null) 'announce': announce,
+        if (collapsed) 'collapsed': true,
       };
 
   factory Subscription.fromJson(Map<String, dynamic> j) => Subscription(
@@ -237,5 +242,6 @@ class Subscription {
         supportUrl: j['supportUrl'] as String?,
         webPageUrl: j['webPageUrl'] as String?,
         announce: j['announce'] as String?,
+        collapsed: j['collapsed'] as bool? ?? false,
       );
 }

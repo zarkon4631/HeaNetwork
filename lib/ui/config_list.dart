@@ -420,6 +420,11 @@ class ConfigList extends StatelessWidget {
           if (own.isNotEmpty)
             Section(
               title: s.myServers,
+              count: own.length,
+              collapsed: state.settings.ownServersCollapsed,
+              onToggle: () => state.toggleCollapsed(null),
+              collapsedSummary: _SelectedSummary.of(state, own),
+              animate: state.settings.animations,
               children: [for (final p in own) _ServerTile(profile: p)],
             ),
           for (final sub in state.subscriptions) _SubscriptionSection(sub: sub),
@@ -524,6 +529,12 @@ class _SubscriptionSection extends StatelessWidget {
     return Section(
       title: sub.name,
       subtitle: _info(s),
+      count: servers.length,
+      collapsed: sub.collapsed,
+      onToggle: () => state.toggleCollapsed(sub),
+      collapsedSummary: _SelectedSummary.of(state, servers,
+          auto: auto ? s.autoSelect : null),
+      animate: state.settings.animations,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -584,6 +595,49 @@ class _SubscriptionSection extends StatelessWidget {
             subtitle: s.autoSelectOf(sub.name),
           ),
         for (final p in servers) _ServerTile(profile: p),
+      ],
+    );
+  }
+}
+
+/// What a folded group says about the selection hidden inside it: the
+/// server (or auto-select) in use, so folding never hides what is chosen.
+class _SelectedSummary extends StatelessWidget {
+  const _SelectedSummary({required this.label, this.latencyMs});
+
+  final String label;
+  final int? latencyMs;
+
+  /// Null when the selection is not among [servers].
+  static Widget? of(AppState state, List<ProxyProfile> servers, {String? auto}) {
+    final active = state.activeProfile;
+    final shown =
+        active != null && servers.any((p) => p.id == active.id) ? active : null;
+    if (auto != null) {
+      return _SelectedSummary(
+        label: shown == null ? auto : '$auto · ${shown.name}',
+        latencyMs: shown?.latencyMs,
+      );
+    }
+    if (shown == null || state.autoSubscription != null) return null;
+    return _SelectedSummary(label: shown.name, latencyMs: shown.latencyMs);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(Icons.radio_button_checked_rounded, size: 14, color: scheme.primary),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
+        const SizedBox(width: 8),
+        LatencyBadge(latencyMs),
       ],
     );
   }
