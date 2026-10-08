@@ -179,7 +179,7 @@ object LocalResolver : LocalDNSTransport {
 
     /** Runs an async resolver call to completion on the calling thread. */
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun <T> await(
+    private fun <T : Any> await(
         ctx: ExchangeContext,
         onAnswer: (T) -> Unit,
         start: (CancellationSignal, DnsResolver.Callback<T>) -> Unit,
