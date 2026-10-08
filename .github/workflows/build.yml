@@ -271,6 +271,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          path: src
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -283,8 +288,18 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.name }}
         run: |
+          # This version's section of CHANGELOG.md becomes the release notes,
+          # which the app shows under "What's new". Without one, GitHub's
+          # generated notes will do.
+          awk -v v="$VERSION" '/^## /{on=($2==v); next} on' src/CHANGELOG.md > notes.md || true
+          if grep -q '[^[:space:]]' notes.md; then
+            notes=(--notes-file notes.md)
+          else
+            notes=(--generate-notes)
+          fi
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "HeaNetwork ${{ needs.version.outputs.name }}" \
-            --generate-notes
+            --title "HeaNetwork $VERSION" \
+            "${notes[@]}"
