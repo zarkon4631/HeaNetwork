@@ -556,7 +556,16 @@ class AppState extends ChangeNotifier {
   static const _installChannel = MethodChannel('hea/core');
 
   Future<List<String>> _assetSuffixes() async {
-    if (isWindows) return const ['windows-x64-setup.exe'];
+    if (isWindows) {
+      // Only a copy that the installer put there can be updated by running
+      // the installer again; a portable copy just links to the release page.
+      final sep = Platform.pathSeparator;
+      final uninstaller =
+          '${File(Platform.resolvedExecutable).parent.path}${sep}unins000.exe';
+      return File(uninstaller).existsSync()
+          ? const ['windows-x64-setup.exe']
+          : const [];
+    }
     try {
       final abi = await _installChannel.invokeMethod<String>('abi');
       return [if (abi != null) 'android-$abi.apk', 'android-universal.apk'];

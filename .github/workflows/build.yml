@@ -21,7 +21,9 @@ env:
   FLUTTER_VERSION: 3.47.6
   # Matches the toolchain the pinned core is developed and released with.
   GO_VERSION: 1.26.8
-  NDK_VERSION: r28
+  # r28c is the NDK this Flutter release asks for (28.2.13676358), and a patch
+  # release of the r28 the core is developed against, so one copy serves both.
+  NDK_VERSION: r28c
 
 jobs:
   version:
@@ -142,11 +144,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Linked into the SDK so Gradle finds it instead of downloading a
+      # second copy (which does not fit on the runner next to the Go caches).
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          link-to-sdk: true
+
       # The core library takes ~10 minutes to compile, so it is cached until
       # the pinned version or the build script changes.
       - name: Restore the core library
         id: libbox
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: android/app/libs/libbox.aar
           key: libbox-${{ hashFiles('tool/core.json', 'tool/build_libbox.sh') }}
@@ -155,16 +165,24 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
-      - uses: nttld/setup-ndk@v1
-        if: steps.libbox.outputs.cache-hit != 'true'
-        id: ndk
-        with:
-          ndk-version: ${{ env.NDK_VERSION }}
       - name: Build the core library
         if: steps.libbox.outputs.cache-hit != 'true'
         run: bash tool/build_libbox.sh
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+      # Saved right away, so a failure further down does not cost a rebuild.
+      - name: Save the core library
+        if: steps.libbox.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: android/app/libs/libbox.aar
+          key: ${{ steps.libbox.outputs.cache-primary-key }}
+      - name: Free the space used by the core build
+        if: steps.libbox.outputs.cache-hit != 'true'
+        run: |
+          go clean -cache -modcache
+          rm -rf .cache/core-src
+          df -h /
 
       - uses: subosito/flutter-action@v2
         with:
