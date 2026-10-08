@@ -45,6 +45,14 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // Store native libraries compressed. The core alone is ~85 MB
+            // per ABI uncompressed, which would triple the download size.
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
