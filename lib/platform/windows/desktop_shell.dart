@@ -144,8 +144,12 @@ class DesktopShell with WindowListener, TrayListener {
         MenuItem(key: 'show', label: s.trayShow),
         MenuItem(
           key: 'toggle',
-          label: status == CoreStatus.stopped ? s.trayConnect : s.trayDisconnect,
-          disabled: state.isBusy,
+          label: switch (status) {
+            CoreStatus.stopped => s.trayConnect,
+            CoreStatus.starting => s.cancelConnecting,
+            _ => s.trayDisconnect,
+          },
+          disabled: status == CoreStatus.stopping,
         ),
         MenuItem.separator(),
         MenuItem(key: 'quit', label: s.trayQuit),

@@ -16,6 +16,7 @@ import 'package:heanetwork/core/config/config_builder.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/services/app_catalog.dart';
 import 'package:heanetwork/core/services/clash_api.dart';
+import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/services/updater.dart';
 import 'package:heanetwork/platform/windows/desktop_shell.dart';
 import 'package:heanetwork/state/app_state.dart';
@@ -165,6 +166,41 @@ void main() {
         await tester.tap(find.byIcon(Icons.power_settings_new_rounded));
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.text('No server selected'), findsOneWidget);
+      }, variant: variant);
+
+      testWidgets('a connection being set up can be called off', (tester) async {
+        final core = SlowCore();
+        final state = makeState(platform: platform, tv: isTv, core: core);
+        state.settings
+          ..locale = 'ru'
+          ..themeMode = 'dark';
+        await pumpApp(tester, state, size: size);
+        // Finding free ports is real I/O, so the start runs off the fake clock.
+        late Future<void> connecting;
+        await tester.runAsync(() async {
+          connecting = state.connect();
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        });
+        // One frame to start the title's cross-fade, one to finish it.
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(state.status, CoreStatus.starting);
+        expect(find.text('Подключение…'), findsOneWidget);
+        expect(find.text('Отключено'), findsNothing);
+        expect(find.text('Отменить подключение'), findsOneWidget);
+        // The big button turns into "cancel" as well.
+        expect(find.byIcon(Icons.close_rounded), findsOneWidget);
+        expect(find.byIcon(Icons.power_settings_new_rounded), findsNothing);
+        await shoot(tester, '${label}_home_connecting');
+
+        await tester.tap(find.text('Отменить подключение'));
+        await tester.runAsync(() => connecting);
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(state.status, CoreStatus.stopped);
+        expect(find.text('Отключено'), findsOneWidget);
+        expect(find.byIcon(Icons.power_settings_new_rounded), findsOneWidget);
+        expect(state.error, isNull);
+        expect(find.text('Не удалось подключиться'), findsNothing);
       }, variant: variant);
 
       testWidgets('groups fold down to their header and back', (tester) async {
@@ -352,6 +388,122 @@ void main() {
       expect(find.textContaining('консольные программы'), findsOneWidget);
       expect(find.textContaining('включите режим VPN'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    }, variant: variant);
+
+    testWidgets('the connect button itself cancels, but not on a double click',
+        (tester) async {
+      final core = SlowCore();
+      final state = makeState(core: core);
+      state.settings.locale = 'ru';
+      await pumpApp(tester, state, size: desktop);
+      await tester.tap(find.byIcon(Icons.power_settings_new_rounded));
+      // The click runs on the fake clock while finding free ports is real
+      // I/O: let each take a turn until the core is being started.
+      for (var i = 0; i < 40 && state.status != CoreStatus.starting; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(state.status, CoreStatus.starting);
+
+      // The second half of a double click arrives right away: ignored.
+      await tester.tap(find.byIcon(Icons.close_rounded));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(state.status, CoreStatus.starting);
+      expect(core.starts, 1);
+
+      // A click after a moment is meant.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
+      await tester.tap(find.byIcon(Icons.close_rounded));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(state.status, CoreStatus.stopped);
+      expect(state.error, isNull);
+    }, variant: variant);
+
+    testWidgets('a start that timed out points at the log', (tester) async {
+      final core = SlowCore();
+      final state = makeState(core: core);
+      state.settings.locale = 'ru';
+      await pumpApp(tester, state, size: desktop);
+      late Future<void> connecting;
+      await tester.runAsync(() async {
+        connecting = state.connect();
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        core.fail(CoreStartTimeout(const Duration(seconds: 60), ''));
+        await connecting;
+      });
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Не удалось подключиться'), findsOneWidget);
+      expect(find.textContaining('не запустилось за 60 секунд'), findsOneWidget);
+      expect(find.textContaining('Настройки → Журнал'), findsOneWidget);
+    }, variant: variant);
+
+    testWidgets('administrator rights are shown next to the mode switch',
+        (tester) async {
+      final plain = makeState();
+      await pumpApp(tester, plain, size: desktop);
+      expect(find.byIcon(Icons.admin_panel_settings_rounded), findsNothing);
+
+      final elevated = makeState(elevated: true);
+      elevated.settings
+        ..locale = 'ru'
+        ..mode = ConnectionMode.tun;
+      await pumpApp(tester, elevated, size: desktop);
+      expect(find.byIcon(Icons.admin_panel_settings_rounded), findsOneWidget);
+      await tester.tap(find.text('Настройки'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.ensureVisible(find.text('Запущено с правами администратора'));
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
+    testWidgets('DNS is picked from a list with a custom entry at the bottom',
+        (tester) async {
+      final state = makeState();
+      state.settings
+        ..locale = 'ru'
+        ..themeMode = 'dark';
+      await pumpApp(tester, state, size: desktop, tab: ShellTab.settings);
+      Future<void> openMenu(String title) async {
+        await tester.ensureVisible(find.text(title));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(title));
+        await tester.pumpAndSettle();
+      }
+
+      await tester.ensureVisible(find.text('DNS для прямых соединений'));
+      await tester.pumpAndSettle();
+      expect(find.text('Google · 8.8.8.8'), findsOneWidget);
+      expect(find.text('Системный'), findsOneWidget);
+
+      await openMenu('DNS через VPN');
+      expect(find.text('Cloudflare · 1.1.1.1'), findsOneWidget);
+      expect(find.text('AdGuard · 94.140.14.14 · без рекламы'), findsOneWidget);
+      expect(find.text('Cloudflare DoH · https://1.1.1.1/dns-query · шифрованный'),
+          findsOneWidget);
+      expect(find.text('Указать вручную…'), findsOneWidget);
+      await shoot(tester, 'desktop_dns_menu');
+      await tester.tap(find.text('Cloudflare · 1.1.1.1'));
+      await tester.pumpAndSettle();
+      expect(state.settings.remoteDns, '1.1.1.1');
+      expect(find.text('Cloudflare · 1.1.1.1'), findsOneWidget, reason: 'now on the tile');
+
+      await openMenu('DNS через VPN');
+      await tester.tap(find.text('Указать вручную…'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          'tls://dns.example');
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+      expect(state.settings.remoteDns, 'tls://dns.example');
+      expect(find.text('Свой: tls://dns.example'), findsOneWidget);
+
+      // The DNS for direct connections offers the system resolver first.
+      await openMenu('DNS для прямых соединений');
+      await tester.tap(find.text('Яндекс · 77.88.8.8'));
+      await tester.pumpAndSettle();
+      expect(state.settings.directDns, '77.88.8.8');
     }, variant: variant);
 
     testWidgets('folding animates when animations are on', (tester) async {

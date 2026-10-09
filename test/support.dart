@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -34,6 +35,41 @@ class FakeCore extends CoreController {
   Future<void> stop() async => setStatus(CoreStatus.stopped);
 
   void log(String line) => addLog(line);
+}
+
+/// A core whose start hangs until the test lets it through, fails it, or
+/// the app calls it off; for everything that happens while "connecting".
+class SlowCore extends CoreController {
+  Completer<void>? _gate;
+  int starts = 0;
+
+  @override
+  Future<void> start(Map<String, dynamic> config) async {
+    starts++;
+    final gate = _gate = Completer<void>();
+    setStatus(CoreStatus.starting);
+    try {
+      await gate.future;
+      setStatus(CoreStatus.running);
+    } on Object {
+      setStatus(CoreStatus.stopped);
+      rethrow;
+    }
+  }
+
+  void finish() => _gate!.complete();
+  void fail(CoreException e) => _gate!.completeError(e);
+
+  @override
+  Future<void> stop() async {
+    final gate = _gate;
+    if (status == CoreStatus.starting && gate != null && !gate.isCompleted) {
+      setStatus(CoreStatus.stopping);
+      gate.completeError(CoreCancelled());
+      return;
+    }
+    setStatus(CoreStatus.stopped);
+  }
 }
 
 /// Real fonts, so rendered screens show text instead of placeholder boxes.
@@ -80,6 +116,7 @@ AppState makeState({
   http.Client? client,
   http.Client? subscriptionClient,
   TcpProbe? tcpProbe,
+  CoreController? core,
 }) {
   final dir = Directory.systemTemp.createTempSync('hea_ui_');
   addTearDown(() {
@@ -160,10 +197,10 @@ AppState makeState({
 
   final state = AppState(
     store: store,
-    core: FakeCore(),
+    core: core ?? FakeCore(),
     platform: platform,
     paths: AppPaths(support: dir, corePath: r'C:\none\sing-box.exe'),
-    appVersion: '1.0.2',
+    appVersion: '1.0.3',
     elevated: elevated,
     updater: Updater(client: client ?? offlineClient()),
     httpClient: subscriptionClient,

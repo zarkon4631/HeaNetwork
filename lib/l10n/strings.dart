@@ -323,6 +323,27 @@ class S {
       'Время ответа сайта через каждый сервер: показывает задержку, которая будет в работе, но замер дольше',
       'Time of a real request through each server: the delay you will actually get, but slower to measure');
 
+  // ---- connecting, DNS and logs (1.0.3)
+  String get cancelConnecting => _t('Отменить подключение', 'Cancel connecting');
+  String get tapToCancel => _t('Нажмите, чтобы отменить', 'Tap to cancel');
+  String startTimeout(int seconds) => _t(
+      'Ядро не запустилось за $seconds секунд. Подробности — в журнале: Настройки → Журнал.',
+      'The core did not start within $seconds seconds. See the log for details: Settings → Log.');
+  String get dnsManual => _t('Указать вручную…', 'Enter manually…');
+  String dnsCustom(String value) => _t('Свой: $value', 'Custom: $value');
+  String get dnsRemoteHint => _t(
+      'IP-адрес или ссылка: 8.8.8.8 · tcp://8.8.8.8 · tls://dns.google · https://1.1.1.1/dns-query',
+      'An IP address or a URL: 8.8.8.8 · tcp://8.8.8.8 · tls://dns.google · https://1.1.1.1/dns-query');
+  String get dnsDirectHint => _t(
+      'IP-адрес или ссылка: 77.88.8.8 · https://dns.yandex.ru/dns-query. Пусто — системный',
+      'An IP address or a URL: 77.88.8.8 · https://dns.yandex.ru/dns-query. Empty for the system one');
+  String get dnsNoAds => _t('без рекламы', 'blocks ads');
+  String get dnsEncrypted => _t('шифрованный', 'encrypted');
+  String get openLogFolder => _t('Открыть папку с журналом', 'Open the log folder');
+  String get logLevelWarn => _t('только ошибки', 'errors only');
+  String get logLevelInfo => _t('обычный', 'normal');
+  String get logLevelDebug => _t('подробный', 'detailed');
+
   // ---- close dialog
   String get closeTitle => _t('Закрыть HeaNetwork?', 'Close HeaNetwork?');
   String get closeBody => _t(

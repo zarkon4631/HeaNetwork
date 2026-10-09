@@ -12,7 +12,9 @@ import 'core/services/device_identity.dart';
 import 'core/services/storage.dart';
 import 'platform/android/widget_bridge.dart';
 import 'platform/windows/desktop_shell.dart';
+import 'platform/windows/elevation.dart';
 import 'platform/windows/system_proxy.dart';
+import 'platform/windows/win32.dart' as win32;
 import 'state/app_state.dart';
 
 /// The bundled core sits next to the executable; a development checkout
@@ -37,6 +39,17 @@ Future<void> main(List<String> args) async {
 
   final store = AppStore(paths.data);
   await store.load();
+
+  if (windows &&
+      shouldElevateOnLaunch(
+          settings: store.settings, elevated: win32.isElevated(), args: args)) {
+    // Shows the Windows prompt. Declined, the app starts as it is and
+    // explains what it needs when asked to connect.
+    if (win32.shellExecute(Platform.resolvedExecutable,
+        verb: 'runas', args: elevatedArguments(args))) {
+      exit(0);
+    }
+  }
   // Known before the first frame: a TV gets a different layout.
   final device = await DeviceIdentity.detect(installId: store.settings.installId);
 
@@ -59,7 +72,7 @@ Future<void> main(List<String> args) async {
     await DesktopShell.init(state, startHidden: args.contains(Autostart.flag));
   }
   runApp(HeaApp(state: state));
-  await state.init(connect: args.contains('--connect'));
+  await state.init(connect: args.contains(connectFlag));
   if (Platform.isAndroid) {
     // Kept alive for the life of the app: it feeds the home-screen widget.
     await AndroidWidgetBridge(state).adoptSelection();

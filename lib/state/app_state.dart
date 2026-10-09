@@ -335,8 +335,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set while [connect] is at work, including the moment before the core
+  /// reports that it is starting.
+  DateTime? _connectingSince;
+
   Future<void> connect() async {
-    if (status != CoreStatus.stopped) return;
+    if (status != CoreStatus.stopped || _connectingSince != null) return;
     error = null;
     final using = connectionProfiles;
     if (using.isEmpty) {
@@ -348,6 +352,7 @@ class AppState extends ChangeNotifier {
       throw ElevationRequired();
     }
 
+    _connectingSince = DateTime.now();
     try {
       final mixedPort = await freeTcpPort(settings.mixedPort);
       final clashPort = await freeTcpPort();
@@ -371,16 +376,25 @@ class AppState extends ChangeNotifier {
       }
       _clash = ClashApi(clashPort, secret);
       _startStats(using.length > 1);
+    } on CoreCancelled {
+      // Called off by the user: nothing went wrong, nothing to report.
+      activeMode = null;
+    } on CoreStartTimeout catch (e) {
+      error = 'start-timeout:${e.limit.inSeconds}';
+      activeMode = null;
     } on CoreException catch (e) {
       error = e.message;
       activeMode = null;
     } on Object catch (e) {
       error = '$e';
       activeMode = null;
+    } finally {
+      _connectingSince = null;
     }
     notifyListeners();
   }
 
+  /// Disconnects, or calls off a connection that is still being set up.
   Future<void> disconnect() async {
     _stopStats();
     systemProxy?.restore();
@@ -390,8 +404,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggle() =>
-      status == CoreStatus.stopped ? connect() : disconnect();
+  /// A connection is being set up and can be called off.
+  bool get canCancel => status == CoreStatus.starting;
+
+  /// What the connect button does: connect, disconnect, or call off a
+  /// connection in progress.
+  Future<void> toggle() async {
+    if (status == CoreStatus.stopped) return connect();
+    // The second click of a double click on "connect" lands while it is
+    // already starting, and must not undo the first.
+    final since = _connectingSince;
+    if (status == CoreStatus.starting &&
+        since != null &&
+        DateTime.now().difference(since) < const Duration(milliseconds: 700)) {
+      return;
+    }
+    return disconnect();
+  }
 
   /// Applies changed settings to a live connection.
   Future<void> reconnect() async {
@@ -460,6 +489,16 @@ class AppState extends ChangeNotifier {
     }
     _lastStatus = now;
     notifyListeners();
+  }
+
+  /// The folder holding the core's log files, where they are kept on disk
+  /// (Windows: `core.log` for this run, `core.prev.log` for the one before).
+  String? get coreLogDirectory =>
+      core is ProcessCoreController ? paths.run.path : null;
+
+  void openCoreLogDirectory() {
+    final dir = coreLogDirectory;
+    if (dir != null && Platform.isWindows) win32.shellExecute(dir);
   }
 
   /// Delay of the live connection, measured through the running core.

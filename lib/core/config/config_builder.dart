@@ -114,7 +114,9 @@ Map<String, dynamic> hardenOutbound(
 
 /// Parses a DNS server spec (`local`, `1.1.1.1`, `https://host/path`,
 /// `tls://host`, `quic://host`, `h3://host/path`, `tcp://host`).
-Map<String, dynamic> dnsServer(String spec, String tag, {String? detour}) {
+/// With [preferTcp] a bare address is asked over TCP instead of UDP.
+Map<String, dynamic> dnsServer(String spec, String tag,
+    {String? detour, bool preferTcp = false}) {
   final s = spec.trim();
   final base = <String, dynamic>{'tag': tag};
   if (s.isEmpty || s == 'local' || s == 'system') {
@@ -146,6 +148,7 @@ Map<String, dynamic> dnsServer(String spec, String tag, {String? detour}) {
   if (!const {'udp', 'tcp', 'tls', 'https', 'quic', 'h3'}.contains(type)) {
     type = 'udp';
   }
+  if (preferTcp && type == 'udp') type = 'tcp';
   return {
     ...base,
     'type': type,
@@ -395,8 +398,13 @@ Map<String, dynamic> buildConfig({
   }
 
   // ---- dns --------------------------------------------------------------
+  // An HTTP proxy cannot carry UDP and a SOCKS one often will not, which
+  // is what a bare DNS address would need; TCP gets through both.
+  final proxyCarriesUdp = profiles
+      .every((p) => p.type != Protocol.http && p.type != Protocol.socks);
   final dnsServers = <Map<String, dynamic>>[
-    dnsServer(settings.remoteDns, tagDnsRemote, detour: tagProxy),
+    dnsServer(settings.remoteDns, tagDnsRemote,
+        detour: tagProxy, preferTcp: !proxyCarriesUdp),
     dnsServer(settings.directDns, tagDnsDirect),
   ];
   final dnsRules = <Map<String, dynamic>>[];

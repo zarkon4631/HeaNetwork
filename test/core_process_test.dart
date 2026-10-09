@@ -5,6 +5,7 @@
 @Timeout(Duration(minutes: 3))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -94,6 +95,92 @@ void main() {
     ]);
     await settle(() => !File('${tmp.path}\\run\\core.pid').existsSync());
     expect(File('${tmp.path}\\run\\core.pid').existsSync(), isFalse);
+  });
+
+  // What the app's configs look like to the controller: a log level and the
+  // API the core is told to open.
+  Map<String, dynamic> appLikeConfig(int port, String level, {int? apiPort}) => {
+        ...minimalConfig(port),
+        'log': {'level': level, 'timestamp': true},
+        if (apiPort != null)
+          'experimental': {
+            'clash_api': {'external_controller': '127.0.0.1:$apiPort', 'secret': 's3cret'},
+          },
+      };
+
+  test('a quiet log level does not make a healthy core look dead', () async {
+    // At "warn" the core prints nothing on a clean start, least of all the
+    // "sing-box started" line; its API answering is what counts.
+    final port = await freeTcpPort();
+    final watch = Stopwatch()..start();
+    await core.start(appLikeConfig(port, 'warn', apiPort: await freeTcpPort()));
+    expect(core.status, CoreStatus.running);
+    expect(watch.elapsed, lessThan(const Duration(seconds: 15)));
+    expect(core.logs.join('\n'), isNot(contains('sing-box started')));
+    expect(await portOpen(port), isTrue);
+    await core.stop();
+    expect(core.lastError, isNull);
+  });
+
+  test('a start can be called off while it is still waiting', () async {
+    // No API and a silent log level: this core never reports ready.
+    final port = await freeTcpPort();
+    final starting = core.start(appLikeConfig(port, 'warn'));
+    Object? outcome;
+    unawaited(starting.then((_) => outcome = 'started', onError: (Object e) => outcome = e));
+    for (var i = 0; i < 100 && !await portOpen(port); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect(core.status, CoreStatus.starting);
+
+    final watch = Stopwatch()..start();
+    await core.stop();
+    await settle(() => outcome != null);
+    expect(outcome, isA<CoreCancelled>());
+    expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
+    expect(core.status, CoreStatus.stopped);
+    expect(core.lastError, isNull, reason: 'calling it off is not a failure');
+    expect(await portOpen(port), isFalse, reason: 'the core is gone');
+
+    // The controller is usable again straight away.
+    await core.start(minimalConfig(port));
+    expect(core.status, CoreStatus.running);
+  });
+
+  test('a core that never becomes ready is stopped after the limit', () async {
+    final impatient = ProcessCoreController(
+      corePath: corePath,
+      runDir: Directory('${tmp.path}\\run2'),
+      startTimeout: const Duration(seconds: 2),
+    );
+    addTearDown(impatient.stop);
+    final port = await freeTcpPort();
+    await expectLater(
+      impatient.start(appLikeConfig(port, 'warn')),
+      throwsA(isA<CoreStartTimeout>()
+          .having((e) => e.limit.inSeconds, 'limit', 2)
+          .having((e) => e.message, 'message', contains('2 seconds'))),
+    );
+    expect(impatient.status, CoreStatus.stopped);
+    for (var i = 0; i < 30 && await portOpen(port); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect(await portOpen(port), isFalse, reason: 'it must not be left running');
+  });
+
+  test('the log of a run is kept on disk, and the run before it too', () async {
+    await core.start(minimalConfig(await freeTcpPort()));
+    await core.stop();
+    await settle(() => core.logFile.existsSync() && core.logFile.lengthSync() > 0);
+    final first = core.logFile.readAsStringSync();
+    expect(first, contains('sing-box started'));
+
+    final port = await freeTcpPort();
+    await core.start(minimalConfig(port));
+    await core.stop();
+    await settle(() => core.logFile.existsSync() && core.logFile.lengthSync() > 0);
+    expect(core.previousLogFile.readAsStringSync(), first);
+    expect(core.logFile.readAsStringSync(), contains('127.0.0.1:$port'));
   });
 
   test('a config the core rejects is reported with its reason', () async {

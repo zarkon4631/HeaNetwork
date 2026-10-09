@@ -122,6 +122,41 @@ enum PingMode {
       values.firstWhere((e) => e.name == v, orElse: () => tcp);
 }
 
+/// A DNS server offered by name in the settings. [value] is what the
+/// config builder's `dnsServer` parses; [note] tells the choices apart.
+class DnsPreset {
+  const DnsPreset(this.name, this.value, [this.note = DnsNote.none]);
+  final String name;
+  final String value;
+  final DnsNote note;
+}
+
+enum DnsNote { none, noAds, encrypted }
+
+/// The DNS used through the VPN unless the user picks another. A plain
+/// address: the query already travels inside the encrypted tunnel, and of
+/// everything tried it gets the quickest answers.
+const defaultRemoteDns = '8.8.8.8';
+
+const remoteDnsPresets = [
+  DnsPreset('Google', defaultRemoteDns),
+  DnsPreset('Cloudflare', '1.1.1.1'),
+  DnsPreset('Quad9', '9.9.9.9'),
+  DnsPreset('AdGuard', '94.140.14.14', DnsNote.noAds),
+  DnsPreset('Google DoH', 'https://8.8.8.8/dns-query', DnsNote.encrypted),
+  DnsPreset('Cloudflare DoH', 'https://1.1.1.1/dns-query', DnsNote.encrypted),
+];
+
+/// For connections that bypass the VPN. `local` is whatever the system uses.
+const defaultDirectDns = 'local';
+
+const directDnsPresets = [
+  DnsPreset('', defaultDirectDns),
+  DnsPreset('Яндекс', '77.88.8.8'),
+  DnsPreset('Google', '8.8.8.8'),
+  DnsPreset('Cloudflare', '1.1.1.1'),
+];
+
 /// What closing the main window does.
 enum CloseAction {
   /// Ask every time: cancel, quit or hide to the tray.
@@ -189,8 +224,8 @@ class AppSettings {
     this.tunMtu = 0,
     this.strictRoute = true,
     this.ipv6 = false,
-    this.remoteDns = 'https://1.1.1.1/dns-query',
-    this.directDns = 'local',
+    this.remoteDns = defaultRemoteDns,
+    this.directDns = defaultDirectDns,
     this.fakeIp = false,
     AntiDpiSettings? antiDpi,
     this.autoConnect = false,
@@ -299,8 +334,8 @@ class AppSettings {
         tunMtu: (j['tunMtu'] as num?)?.toInt() ?? 0,
         strictRoute: j['strictRoute'] as bool? ?? true,
         ipv6: j['ipv6'] as bool? ?? false,
-        remoteDns: j['remoteDns'] as String? ?? 'https://1.1.1.1/dns-query',
-        directDns: j['directDns'] as String? ?? 'local',
+        remoteDns: j['remoteDns'] as String? ?? defaultRemoteDns,
+        directDns: j['directDns'] as String? ?? defaultDirectDns,
         fakeIp: j['fakeIp'] as bool? ?? false,
         antiDpi: j['antiDpi'] is Map
             ? AntiDpiSettings.fromJson(

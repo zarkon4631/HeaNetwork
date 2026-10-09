@@ -91,20 +91,19 @@ class SettingsPage extends StatelessWidget {
           Section(
             title: s.secDns,
             children: [
-              _TextSetting(
+              _DnsSetting(
                 title: s.remoteDns,
                 value: st.remoteDns,
-                hint: 'https://1.1.1.1/dns-query · tls://8.8.8.8 · 9.9.9.9',
-                onChanged: (v) => state.updateSettings(
-                    (x) => x.remoteDns = v.isEmpty ? 'https://1.1.1.1/dns-query' : v),
+                presets: remoteDnsPresets,
+                hint: s.dnsRemoteHint,
+                onChanged: (v) => state.updateSettings((x) => x.remoteDns = v),
               ),
-              _TextSetting(
+              _DnsSetting(
                 title: s.directDns,
-                value: st.directDns == 'local' ? '' : st.directDns,
-                placeholder: s.dnsLocal,
-                hint: '77.88.8.8 · https://dns.yandex.ru/dns-query',
-                onChanged: (v) =>
-                    state.updateSettings((x) => x.directDns = v.isEmpty ? 'local' : v),
+                value: st.directDns,
+                presets: directDnsPresets,
+                hint: s.dnsDirectHint,
+                onChanged: (v) => state.updateSettings((x) => x.directDns = v),
               ),
               SwitchListTile(
                 title: Text(s.fakeIp),
@@ -195,10 +194,10 @@ class SettingsPage extends StatelessWidget {
                 trailing: DropdownButton<String>(
                   value: st.logLevel,
                   underline: const SizedBox.shrink(),
-                  items: const [
-                    DropdownMenuItem(value: 'warn', child: Text('warn')),
-                    DropdownMenuItem(value: 'info', child: Text('info')),
-                    DropdownMenuItem(value: 'debug', child: Text('debug')),
+                  items: [
+                    DropdownMenuItem(value: 'warn', child: Text(s.logLevelWarn)),
+                    DropdownMenuItem(value: 'info', child: Text(s.logLevelInfo)),
+                    DropdownMenuItem(value: 'debug', child: Text(s.logLevelDebug)),
                   ],
                   onChanged: (v) => state.updateSettings((x) => x.logLevel = v!),
                 ),
@@ -221,6 +220,11 @@ class SettingsPage extends StatelessWidget {
                 subtitle: Text('${s.version(state.appVersion)}\n${s.aboutBody}'),
                 isThreeLine: true,
               ),
+              if (state.elevated)
+                ListTile(
+                  leading: const Icon(Icons.admin_panel_settings_rounded),
+                  title: Text(s.runningAsAdmin),
+                ),
               ListTile(
                 leading: const Icon(Icons.code_rounded),
                 title: Text(s.sourceCode),
@@ -613,6 +617,97 @@ class _NumberFieldState extends State<_NumberField> {
   }
 }
 
+/// A DNS server picked from a short list of well-known ones, with a last
+/// entry for typing in any other.
+class _DnsSetting extends StatelessWidget {
+  const _DnsSetting({
+    required this.title,
+    required this.value,
+    required this.presets,
+    required this.hint,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String value;
+  final List<DnsPreset> presets;
+  final String hint;
+  final ValueChanged<String> onChanged;
+
+  // Cannot collide with an address: a DNS spec never starts with "#".
+  static const _manual = '#manual';
+
+  String _describe(S s, DnsPreset p) {
+    final note = switch (p.note) {
+      DnsNote.noAds => s.dnsNoAds,
+      DnsNote.encrypted => s.dnsEncrypted,
+      DnsNote.none => null,
+    };
+    return [
+      // The nameless preset is "whatever the system uses".
+      if (p.name.isEmpty) s.dnsLocal else ...[p.name, p.value],
+      ?note,
+    ].join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final current = presets.where((p) => p.value == value).firstOrNull;
+
+    return PopupMenuButton<String>(
+      tooltip: '',
+      position: PopupMenuPosition.under,
+      constraints: const BoxConstraints(minWidth: 320),
+      onSelected: (picked) async {
+        if (picked != _manual) {
+          onChanged(picked);
+          return;
+        }
+        final typed = await promptText(context,
+            title: title, initial: current == null ? value : '', hint: hint);
+        if (typed != null && typed.isNotEmpty) onChanged(typed);
+      },
+      itemBuilder: (_) => [
+        for (final p in presets)
+          PopupMenuItem(
+            value: p.value,
+            child: Row(
+              children: [
+                Icon(
+                  p.value == value
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 18,
+                  color: p.value == value ? scheme.primary : scheme.outline,
+                ),
+                const SizedBox(width: 12),
+                Flexible(child: Text(_describe(s, p))),
+              ],
+            ),
+          ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _manual,
+          child: Row(
+            children: [
+              Icon(Icons.edit_outlined, size: 18, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Flexible(child: Text(s.dnsManual)),
+            ],
+          ),
+        ),
+      ],
+      child: ListTile(
+        title: Text(title),
+        subtitle: Text(current == null ? s.dnsCustom(value) : _describe(s, current)),
+        trailing: const Icon(Icons.arrow_drop_down_rounded),
+      ),
+    );
+  }
+}
+
 /// A setting edited as free text in a dialog.
 class _TextSetting extends StatelessWidget {
   const _TextSetting({
@@ -668,6 +763,14 @@ class _LogsPageState extends State<LogsPage> {
       appBar: AppBar(
         title: Text(s.logs),
         actions: [
+          // The log of this run and of the one before it is also kept on
+          // disk, where it outlives the app.
+          if (state.coreLogDirectory != null)
+            IconButton(
+              tooltip: s.openLogFolder,
+              icon: const Icon(Icons.folder_open_rounded),
+              onPressed: state.openCoreLogDirectory,
+            ),
           IconButton(
             tooltip: s.copy,
             icon: const Icon(Icons.copy_rounded),

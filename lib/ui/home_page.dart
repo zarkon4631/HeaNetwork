@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../core/models/settings.dart';
 import '../core/services/core_controller.dart';
 import '../l10n/strings.dart';
+import '../platform/windows/elevation.dart';
 import '../platform/windows/win32.dart' as win32;
 import '../state/app_state.dart';
 import 'config_list.dart';
@@ -50,7 +51,7 @@ Future<void> connectWithPrompts(BuildContext context) async {
       // flushed first so it starts with what is on screen.
       await state.store.flush();
       if (win32.shellExecute(Platform.resolvedExecutable,
-          verb: 'runas', args: '--elevated --connect')) {
+          verb: 'runas', args: elevatedArguments(const [], connect: true))) {
         exit(0);
       }
     }
@@ -175,6 +176,21 @@ class ConnectPanel extends StatelessWidget {
                   ),
                   if (state.isConnected && state.connectedSince != null)
                     _Elapsed(since: state.connectedSince!)
+                  else if (state.canCancel)
+                    // Setting up a connection can take a while; nobody
+                    // should have to sit it out.
+                    TextButton(
+                      onPressed: state.disconnect,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        alignment: Alignment.centerLeft,
+                        minimumSize: const Size(0, 26),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: colors.connecting,
+                      ),
+                      child: Text(s.cancelConnecting),
+                    )
                   else
                     const SizedBox(height: 2),
                   const SizedBox(height: 8),
@@ -349,6 +365,8 @@ class _PowerButtonState extends State<PowerButton> with SingleTickerProviderStat
     final status = state.status;
     final on = status == CoreStatus.running;
     final busy = state.isBusy;
+    // While connecting, the button calls the attempt off.
+    final cancels = state.canCancel;
     final color = switch (status) {
       CoreStatus.running => colors.connected,
       CoreStatus.starting || CoreStatus.stopping => colors.connecting,
@@ -359,7 +377,7 @@ class _PowerButtonState extends State<PowerButton> with SingleTickerProviderStat
 
     return Semantics(
       button: true,
-      label: on ? s.tapToDisconnect : s.tapToConnect,
+      label: cancels ? s.tapToCancel : (on ? s.tapToDisconnect : s.tapToConnect),
       child: SizedBox.square(
         dimension: size,
         child: Stack(
@@ -407,9 +425,10 @@ class _PowerButtonState extends State<PowerButton> with SingleTickerProviderStat
                 child: InkWell(
                   autofocus: state.isTv,
                   customBorder: const CircleBorder(),
-                  onTap: busy ? null : () => connectWithPrompts(context),
+                  onTap: busy && !cancels ? null : () => connectWithPrompts(context),
                   child: Center(
-                    child: Icon(Icons.power_settings_new_rounded,
+                    child: Icon(
+                        cancels ? Icons.close_rounded : Icons.power_settings_new_rounded,
                         size: core * 0.46,
                         color: on ? const Color(0xFF03130B) : color),
                   ),
@@ -526,6 +545,12 @@ class _ErrorCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final raw = state.error!;
     final noServer = raw == 'no-server';
+    const timeoutPrefix = 'start-timeout:';
+    final detail = noServer
+        ? s.noServerHint
+        : (raw.startsWith(timeoutPrefix)
+            ? s.startTimeout(int.tryParse(raw.substring(timeoutPrefix.length)) ?? 60)
+            : raw);
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Card(
@@ -545,7 +570,7 @@ class _ErrorCard extends StatelessWidget {
                         style: TextStyle(
                             color: scheme.onErrorContainer, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
-                    SelectableText(noServer ? s.noServerHint : raw,
+                    SelectableText(detail,
                         style: TextStyle(color: scheme.onErrorContainer, fontSize: 12.5)),
                   ],
                 ),
@@ -633,8 +658,19 @@ class ModeSlider extends StatelessWidget {
           ),
           if (showLabel) ...[
             const SizedBox(height: 4),
-            Text(tun ? s.modeTunShort : s.modeProxyShort,
-                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(tun ? s.modeTunShort : s.modeProxyShort,
+                    style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                // VPN mode needs administrator rights; show that they are there.
+                if (state.elevated) ...[
+                  const SizedBox(width: 3),
+                  Icon(Icons.admin_panel_settings_rounded,
+                      size: 13, color: scheme.primary),
+                ],
+              ],
+            ),
           ],
         ],
       ),

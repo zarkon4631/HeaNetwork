@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../platform/windows/win32.dart' as win32;
+import 'clash_api.dart';
 
 enum CoreStatus { stopped, starting, running, stopping }
 
@@ -14,6 +15,20 @@ class CoreException implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// The start was called off with [CoreController.stop] before it finished.
+/// Not a failure: the user changed their mind.
+class CoreCancelled extends CoreException {
+  CoreCancelled() : super('cancelled');
+}
+
+/// The core kept running but never became ready.
+class CoreStartTimeout extends CoreException {
+  CoreStartTimeout(this.limit, String lastLine)
+      : super('the core did not start within ${limit.inSeconds} seconds'
+            '${lastLine.isEmpty ? '' : ' ($lastLine)'}');
+  final Duration limit;
 }
 
 final _ansi = RegExp(r'\x1B\[[0-9;]*m');
@@ -50,13 +65,16 @@ abstract class CoreController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records a line of core output; returns it cleaned up, or null when
+  /// there was nothing in it.
   @protected
-  void addLog(String line) {
+  String? addLog(String line) {
     final clean = line.replaceAll(_ansi, '').trimRight();
-    if (clean.isEmpty) return;
+    if (clean.isEmpty) return null;
     logs.add(clean);
     if (logs.length > _maxLogLines) logs.removeRange(0, logs.length - _maxLogLines);
     _logStream.add(clean);
+    return clean;
   }
 
   void clearLogs() {
@@ -65,21 +83,94 @@ abstract class CoreController extends ChangeNotifier {
   }
 
   /// Starts the core with [config]. Completes once it is serving; throws
-  /// [CoreException] with the core's own complaint if it cannot start.
+  /// [CoreException] with the core's own complaint if it cannot start, or
+  /// [CoreCancelled] if [stop] was called meanwhile.
   Future<void> start(Map<String, dynamic> config);
 
+  /// Stops the core. Called while it is still starting, calls the start off.
   Future<void> stop();
 }
 
 /// Windows: the core is a child process fed a config file.
 class ProcessCoreController extends CoreController {
-  ProcessCoreController({required this.corePath, required this.runDir});
+  ProcessCoreController({
+    required this.corePath,
+    required this.runDir,
+    this.startTimeout = const Duration(seconds: 60),
+  });
 
   final String corePath;
   final Directory runDir;
+
+  /// How long the core may take to become ready. Generous, because the
+  /// first VPN start installs a network driver, and because the wait can be
+  /// called off with [stop] at any moment.
+  final Duration startTimeout;
   Process? _process;
+  bool _cancelled = false;
 
   File get _pidFile => File('${runDir.path}\\core.pid');
+
+  /// What the core printed during this run, kept on disk so that a failure
+  /// can still be looked into after the app was closed. The run before it
+  /// is in [previousLogFile].
+  File get logFile => File('${runDir.path}\\core.log');
+  File get previousLogFile => File('${runDir.path}\\core.prev.log');
+
+  static const _maxLogFileBytes = 4 * 1024 * 1024;
+  IOSink? _logSink;
+  int _logFileBytes = 0;
+
+  /// Completes when the file of the previous run has been let go of; it
+  /// cannot be renamed before that.
+  Future<void> _logClosed = Future.value();
+
+  void _openLogFile() {
+    try {
+      if (logFile.existsSync()) {
+        if (previousLogFile.existsSync()) previousLogFile.deleteSync();
+        logFile.renameSync(previousLogFile.path);
+      }
+      _logSink = logFile.openWrite();
+      _logFileBytes = 0;
+    } on FileSystemException {
+      // The log file is a convenience; the core runs without it.
+      _logSink = null;
+    }
+  }
+
+  void _writeLogFile(String line) {
+    final sink = _logSink;
+    if (sink == null) return;
+    sink.writeln(line);
+    _logFileBytes += line.length + 2;
+    if (_logFileBytes > _maxLogFileBytes) {
+      // A long session at "debug" level: start a fresh file and keep the
+      // full one as the previous, so the disk use stays bounded.
+      _closeLogFile();
+      unawaited(_logClosed.then((_) {
+        if (_process != null && _logSink == null) _openLogFile();
+      }));
+    }
+  }
+
+  void _closeLogFile() {
+    final sink = _logSink;
+    if (sink == null) return;
+    _logSink = null;
+    _logClosed = sink.close().then<void>((_) {}).catchError((Object _) {});
+  }
+
+  /// Client for the API the core was told to open in [config], if any.
+  static ClashApi? _apiOf(Map<String, dynamic> config) {
+    final experimental = config['experimental'];
+    final api = experimental is Map ? experimental['clash_api'] : null;
+    if (api is! Map) return null;
+    final address = '${api['external_controller'] ?? ''}';
+    final port = int.tryParse(address.substring(address.lastIndexOf(':') + 1));
+    if (port == null || port <= 0) return null;
+    return ClashApi(port, '${api['secret'] ?? ''}');
+  }
 
   /// Kills a core left behind by a previous run of the app that crashed.
   /// The PID is only trusted if it still belongs to our core executable.
@@ -106,11 +197,15 @@ class ProcessCoreController extends CoreController {
       throw CoreException('core not found: $corePath');
     }
     lastError = null;
+    _cancelled = false;
     setStatus(CoreStatus.starting);
+    final api = _apiOf(config);
     try {
       await runDir.create(recursive: true);
       final configFile = File('${runDir.path}\\config.json');
       await configFile.writeAsString(jsonEncode(config), flush: true);
+      await _logClosed;
+      _openLogFile();
 
       final process = await Process.start(
         corePath,
@@ -123,17 +218,21 @@ class ProcessCoreController extends CoreController {
       final started = Completer<void>();
       final recent = <String>[];
       void onLine(String line) {
-        addLog(line);
-        recent.add(line);
+        final clean = addLog(line);
+        if (clean == null) return;
+        _writeLogFile(clean);
+        recent.add(clean);
         if (recent.length > 40) recent.removeAt(0);
-        if (!started.isCompleted && line.contains('sing-box started')) {
+        if (!started.isCompleted && clean.contains('sing-box started')) {
           started.complete();
         }
       }
 
+      // Whatever the core prints must not be able to break the reader.
       const lines = LineSplitter();
-      process.stdout.transform(utf8.decoder).transform(lines).listen(onLine);
-      process.stderr.transform(utf8.decoder).transform(lines).listen(onLine);
+      const decoder = Utf8Decoder(allowMalformed: true);
+      process.stdout.transform(decoder).transform(lines).listen(onLine, onError: (_) {});
+      process.stderr.transform(decoder).transform(lines).listen(onLine, onError: (_) {});
 
       unawaited(process.exitCode.then((code) async {
         if (_process != process) return;
@@ -142,7 +241,8 @@ class ProcessCoreController extends CoreController {
         await Future<void>.delayed(const Duration(milliseconds: 150));
         final wanted = status == CoreStatus.stopping;
         if (!started.isCompleted) {
-          started.completeError(CoreException(summarizeCoreFailure(recent)));
+          started.completeError(
+              _cancelled ? CoreCancelled() : CoreException(summarizeCoreFailure(recent)));
         } else if (!wanted) {
           lastError = summarizeCoreFailure(recent);
         }
@@ -151,19 +251,40 @@ class ProcessCoreController extends CoreController {
         } on FileSystemException {
           // Harmless: killOrphan validates the pid before using it.
         }
+        _closeLogFile();
         setStatus(CoreStatus.stopped);
       }));
 
-      await started.future.timeout(const Duration(seconds: 25), onTimeout: () {
-        throw CoreException('the core did not start within 25 seconds');
+      // "sing-box started" is only printed at the "info" log level and
+      // above, so the line alone cannot be relied on: with "warn" a healthy
+      // core would look as if it never started. The API answers once the
+      // core has finished starting, whatever it logs.
+      if (api != null) {
+        unawaited(() async {
+          while (!started.isCompleted && _process == process) {
+            if (await api.ping()) {
+              if (!started.isCompleted) started.complete();
+              return;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
+        }());
+      }
+
+      await started.future.timeout(startTimeout, onTimeout: () {
+        throw CoreStartTimeout(
+            startTimeout, recent.isEmpty ? '' : summarizeCoreFailure([recent.last]));
       });
       setStatus(CoreStatus.running);
     } on Object catch (e) {
       _process?.kill();
       _process = null;
+      _closeLogFile();
       setStatus(CoreStatus.stopped);
       if (e is CoreException) rethrow;
       throw CoreException('$e');
+    } finally {
+      api?.close();
     }
   }
 
@@ -174,6 +295,7 @@ class ProcessCoreController extends CoreController {
       setStatus(CoreStatus.stopped);
       return;
     }
+    if (status == CoreStatus.starting) _cancelled = true;
     setStatus(CoreStatus.stopping);
     process.kill();
     await process.exitCode.timeout(const Duration(seconds: 5), onTimeout: () {
@@ -202,6 +324,7 @@ class AndroidCoreController extends CoreController {
   static const _events = EventChannel('hea/core/events');
 
   Completer<void>? _starting;
+  bool _cancelled = false;
   Timer? _tail;
   int _logOffset = 0;
   String _partialLine = '';
@@ -258,7 +381,9 @@ class AndroidCoreController extends CoreController {
         } else if (s == CoreStatus.stopped) {
           _stopTail();
           if (starting != null && !starting.isCompleted) {
-            starting.completeError(CoreException(error ?? 'the VPN service stopped'));
+            starting.completeError(_cancelled
+                ? CoreCancelled()
+                : CoreException(error ?? 'the VPN service stopped'));
           } else if (error != null) {
             lastError = error;
           }
@@ -284,6 +409,7 @@ class AndroidCoreController extends CoreController {
       throw CoreException('the VPN is already running');
     }
     lastError = null;
+    _cancelled = false;
     if (!await prepare()) throw CoreException('VPN permission was not granted');
     final starting = _starting = Completer<void>();
     setStatus(CoreStatus.starting);
@@ -292,8 +418,9 @@ class AndroidCoreController extends CoreController {
       await logFile.writeAsString('');
       _startTail();
       await _channel.invokeMethod<void>('start', {'config': jsonEncode(config)});
-      await starting.future.timeout(const Duration(seconds: 30), onTimeout: () {
-        throw CoreException('the VPN service did not start within 30 seconds');
+      const limit = Duration(seconds: 30);
+      await starting.future.timeout(limit, onTimeout: () {
+        throw CoreStartTimeout(limit, '');
       });
     } on PlatformException catch (e) {
       setStatus(CoreStatus.stopped);
@@ -309,6 +436,7 @@ class AndroidCoreController extends CoreController {
   @override
   Future<void> stop() async {
     if (status == CoreStatus.stopped) return;
+    if (status == CoreStatus.starting) _cancelled = true;
     setStatus(CoreStatus.stopping);
     await _channel.invokeMethod<void>('stop');
     for (var i = 0; i < 100 && status != CoreStatus.stopped; i++) {
