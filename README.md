@@ -45,13 +45,20 @@ VPN-клиент для **Windows**, **Android** и **Android TV** с понят
 - **Защита от блокировок (DPI / ТСПУ)** одним переключателем: *Выкл / Авто /
   Усиленная / Вручную*. Подробнее — [ниже](#защита-от-блокировок).
 - **Подписки 3x-ui**: обычные и JSON, остаток трафика и срок, объявления и ссылка
-  поддержки из панели, автообновление с интервалом, который задаёт панель,
-  автовыбор самого быстрого сервера. Подробнее — [ниже](#подписки-3x-ui-и-hwid).
-- **HWID**: приложение сообщает панели идентификатор устройства, чтобы работал
-  лимит устройств на подписку.
+  поддержки из панели, автообновление с интервалом, который задаёт панель.
+  Подробнее — [ниже](#подписки-3x-ui-и-hwid).
+- **HWID и IP-адрес**: приложение сообщает панели идентификатор устройства,
+  чтобы работал лимит устройств на подписку, и внешний IP-адрес устройства —
+  для статистики.
+- **Флаги стран**: код страны в названии сервера (`NL`, `RU`, `DE-2`, `USA`
+  или эмодзи-флаг) превращается во флаг — значок рядом с названием и фон
+  строки. Флаги приложение рисует само, поэтому они есть и на Windows.
 - **Android TV**: интерфейс под пульт и телевизионный экран; подписку удобно
   [прислать с телефона по QR-коду](#android-tv).
 - **Виджет Android**: подключение и переключение серверов с главного экрана.
+- **Кнопка в шторке Android**: подключение одним нажатием из панели быстрых
+  настроек (свайп сверху). Добавляется в настройках приложения или через
+  «Изменить» в самой шторке.
 - **Компактный вид** (Windows): маленькое окно поверх остальных — только кнопка
   и скорость.
 - **Импорт**: буфер обмена, QR-код, файл `.conf` / `.json`, подписка, ключ `vpn://`.
@@ -151,6 +158,17 @@ VPN — приложение предложит перезапуститься �
 настройках и отправляется только серверу подписки. Если лимит исчерпан,
 приложение прямо об этом скажет. Отправку можно выключить в настройках.
 
+**IP-адрес.** Вместе с HWID уходят заголовки `X-Real-IP` и `X-Forwarded-For`
+с внешним адресом устройства. Сервер подписки обычно видит адрес сам, но не
+тогда, когда стоит за прокси, который адрес не передаёт (в статистике тогда
+`127.0.0.1` или `::1`), и не тогда, когда запрос пришёл через VPN — в этом
+случае он видит адрес VPN-сервера. Поэтому приложение узнаёт свой адрес у
+одного из сервисов (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`,
+`ifconfig.me`), причём мимо туннеля, и раз в несколько минут, а не при каждом
+запросе. Это те же заголовки, что ставит обратный прокси, поэтому серверу
+достаточно читать `X-Forwarded-For` (первый адрес в списке) или `X-Real-IP`.
+Выключается тем же переключателем, что и HWID.
+
 ## Защита от блокировок
 
 Эталонные клиенты ([Throne](https://github.com/throneproj/Throne),
@@ -218,12 +236,16 @@ flutter build apk --split-per-abi
 - `test/core_process_test.dart` — запуск, остановка и сбои процесса ядра.
 - `test/connect_test.dart` — отмена подключения, запуск от администратора, DNS.
 - `test/latency_test.dart` — пинг по TCP, обход туннеля, замер через сервер.
-- `test/subscription_test.dart` — HWID, лимит устройств, обновление подписок,
-  приём по QR.
+- `test/subscription_test.dart` — HWID, IP-адрес, лимит устройств, обновление
+  подписок, приём по QR.
+- `test/public_ip_test.dart` — определение внешнего IP-адреса.
+- `test/flags_test.dart` — страна по названию сервера и флаги.
 - `test/screens_test.dart` — все экраны на размерах компьютера, телефона и
   телевизора; с `HEA_SCREENSHOTS=1` сохраняет скриншоты в `docs/screenshots`.
 
-Значок рисуется скриптом [`tool/gen_icons.mjs`](tool/gen_icons.mjs).
+Значок собирает скрипт [`tool/gen_icons.mjs`](tool/gen_icons.mjs) из картинки
+[`tool/mascot.png`](tool/mascot.png); баннер для Android TV рисует
+`test/tv_banner_test.dart`.
 
 ## Лицензия
 
@@ -247,10 +269,12 @@ options.
 - **Anti-DPI presets**: TLS record/segment fragmentation, uTLS fingerprints,
   optional SNI spoofing. Settings carried by a server always win.
 - **3x-ui subscriptions**: plain and JSON, usage and expiry, panel-defined
-  refresh interval, and HWID headers for the panel's device limit.
+  refresh interval, HWID headers for the panel's device limit, and the
+  device's public IP address for the panel's statistics.
+- **Country flags** from the codes in server names (`NL`, `RU`, `DE-2`).
 - **Android TV** with remote-friendly navigation and a QR code to send a
-  subscription from a phone; a home-screen **widget** on Android; a compact
-  always-on-top window on Windows.
+  subscription from a phone; a home-screen **widget** and a **quick settings
+  tile** on Android; a compact always-on-top window on Windows.
 - **Self-update** from GitHub Releases, verified against SHA-256.
 
 It is a Flutter app driving the

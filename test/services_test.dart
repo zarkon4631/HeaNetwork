@@ -148,7 +148,7 @@ void main() {
     final store = AppStore(tmp)
       ..profiles.add(ProxyProfile(
           name: 'A', type: Protocol.vless, outbound: {'type': 'vless', 'server': 's'}))
-      ..subscriptions.add(Subscription(name: 'S', url: 'https://x', autoSelect: true))
+      ..subscriptions.add(Subscription(name: 'S', url: 'https://x', collapsed: true))
       ..settings.mode = ConnectionMode.tun
       ..settings.antiDpi.preset = AntiDpiPreset.strong
       ..settings.portForwards
@@ -163,7 +163,7 @@ void main() {
     final again = AppStore(tmp);
     await again.load();
     expect(again.profiles.single.name, 'A');
-    expect(again.subscriptions.single.autoSelect, isTrue);
+    expect(again.subscriptions.single.collapsed, isTrue);
     expect(again.settings.mode, ConnectionMode.tun);
     expect(again.settings.antiDpi.preset, AntiDpiPreset.strong);
     expect(again.settings.portForwards.single.targetHost, 'h');
@@ -175,6 +175,31 @@ void main() {
     await broken.load();
     expect(broken.settings.mode, ConnectionMode.systemProxy, reason: 'defaults');
     expect(File('${tmp.path}/settings.json.corrupt').existsSync(), isTrue);
+  });
+
+  test('a subscription selected as a whole becomes its fastest server', () async {
+    // What 1.0.3 stored for "auto-select", which is gone since.
+    ProxyProfile server(String name, int? ms) => ProxyProfile(
+        name: name,
+        type: Protocol.vless,
+        outbound: {'type': 'vless', 'server': name},
+        subscriptionId: 'sub-1',
+        latencyMs: ms);
+    final servers = [
+      server('untested', null),
+      server('slow', 240),
+      server('fast', 35),
+      server('dead', -1),
+    ];
+    File('${tmp.path}/profiles.json')
+        .writeAsStringSync(jsonEncode([for (final p in servers) p.toJson()]));
+    File('${tmp.path}/settings.json').writeAsStringSync(
+        jsonEncode({'selectedProfileId': null, 'selectedSubscriptionId': 'sub-1'}));
+
+    final store = AppStore(tmp);
+    await store.load();
+    expect(store.settings.selectedProfileId, servers[2].id);
+    expect(store.settings.toJson().containsKey('selectedSubscriptionId'), isFalse);
   });
 
   test('overlapping saves are queued and the newest state wins', () async {

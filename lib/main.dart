@@ -9,6 +9,7 @@ import 'app.dart';
 import 'core/config/config_builder.dart';
 import 'core/services/core_controller.dart';
 import 'core/services/device_identity.dart';
+import 'core/services/public_ip.dart';
 import 'core/services/storage.dart';
 import 'platform/android/widget_bridge.dart';
 import 'platform/windows/desktop_shell.dart';
@@ -64,6 +65,7 @@ Future<void> main(List<String> args) async {
     systemProxy: windows ? SystemProxy(paths.proxyBackup) : null,
     autostart: windows ? const Autostart() : null,
     device: device,
+    publicIp: PublicIp.platform(),
   );
   // The install id is generated on first launch; keep it.
   unawaited(store.saveSettings());
@@ -74,7 +76,8 @@ Future<void> main(List<String> args) async {
   runApp(HeaApp(state: state));
   await state.init(connect: args.contains(connectFlag));
   if (Platform.isAndroid) {
-    // Kept alive for the life of the app: it feeds the home-screen widget.
+    // Kept alive for the life of the app: it feeds the home-screen widget
+    // and the quick settings tile.
     await AndroidWidgetBridge(state).adoptSelection();
   }
 }

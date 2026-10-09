@@ -456,7 +456,7 @@ void main() {
       {AntiDpiPreset preset = AntiDpiPreset.balanced}) async {
     final mixedPort = await freeTcp();
     final config = buildConfig(
-      profiles: [profile],
+      profile: profile,
       settings: AppSettings(
         mixedPort: mixedPort,
         antiDpi: AntiDpiSettings(preset: preset),
@@ -528,7 +528,7 @@ void main() {
     }
     final mixedPort = await freeTcp();
     final config = buildConfig(
-      profiles: [profile],
+      profile: profile,
       settings: AppSettings(mixedPort: mixedPort, logLevel: 'debug'),
       routing: RoutingSettings(),
       env: BuildEnv(

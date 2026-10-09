@@ -12,11 +12,12 @@ import '../../core/services/latency_tester.dart';
 import '../../l10n/strings.dart';
 import '../../state/app_state.dart';
 
-/// Keeps the Android home-screen widget supplied with what it needs to work
-/// while the app is closed: the list of configurations, which one is
-/// selected, and a ready-to-run core config for each.
+/// Keeps the Android home-screen widget and the quick settings tile supplied
+/// with what they need to work while the app is closed: the list of
+/// configurations, which one is selected, and a ready-to-run core config for
+/// each.
 ///
-/// Layout under the app's files directory (read by `HeaWidgetProvider`):
+/// Layout under the app's files directory (read by `QuickConnect`):
 ///   `widget/state.json`: list, selection, labels, control port;
 ///   `widget/configs/ID.json`: the core config of that configuration.
 class AndroidWidgetBridge with WidgetsBindingObserver {
@@ -87,7 +88,7 @@ class AndroidWidgetBridge with WidgetsBindingObserver {
         final file = File('${configs.path}${Platform.pathSeparator}${p.id}.json');
         keep.add(file.path);
         await file.writeAsString(jsonEncode(
-            state.configFor([p], clashPort: clashPort, clashSecret: secret)));
+            state.configFor(p, clashPort: clashPort, clashSecret: secret)));
       }
       await for (final entry in configs.list()) {
         if (entry is File && !keep.contains(entry.path)) await entry.delete();

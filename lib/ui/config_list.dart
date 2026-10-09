@@ -16,6 +16,7 @@ import '../core/services/lan_receiver.dart';
 import '../core/services/subscription_service.dart';
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
+import 'flags.dart';
 import 'widgets.dart';
 
 /// Turns a subscription failure into something a person can act on.
@@ -515,7 +516,6 @@ class _SubscriptionSection extends StatelessWidget {
     final s = S.of(context);
     final theme = Theme.of(context);
     final servers = state.profilesOf(sub.id);
-    final auto = state.autoSubscription?.id == sub.id;
 
     Future<void> refresh() async {
       try {
@@ -532,8 +532,7 @@ class _SubscriptionSection extends StatelessWidget {
       count: servers.length,
       collapsed: sub.collapsed,
       onToggle: () => state.toggleCollapsed(sub),
-      collapsedSummary: _SelectedSummary.of(state, servers,
-          auto: auto ? s.autoSelect : null),
+      collapsedSummary: _SelectedSummary.of(state, servers),
       animate: state.settings.animations,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -586,14 +585,6 @@ class _SubscriptionSection extends StatelessWidget {
               ],
             ),
           ),
-        if (servers.length > 1)
-          _SelectableRow(
-            selected: auto,
-            onTap: () => state.selectAuto(sub.id),
-            leading: const Icon(Icons.auto_awesome_rounded, size: 18),
-            title: s.autoSelect,
-            subtitle: s.autoSelectOf(sub.name),
-          ),
         for (final p in servers) _ServerTile(profile: p),
       ],
     );
@@ -601,49 +592,46 @@ class _SubscriptionSection extends StatelessWidget {
 }
 
 /// What a folded group says about the selection hidden inside it: the
-/// server (or auto-select) in use, so folding never hides what is chosen.
+/// server in use, so folding never hides what is chosen.
 class _SelectedSummary extends StatelessWidget {
-  const _SelectedSummary({required this.label, this.latencyMs});
+  const _SelectedSummary({required this.profile});
 
-  final String label;
-  final int? latencyMs;
+  final ProxyProfile profile;
 
   /// Null when the selection is not among [servers].
-  static Widget? of(AppState state, List<ProxyProfile> servers, {String? auto}) {
-    final active = state.activeProfile;
-    final shown =
-        active != null && servers.any((p) => p.id == active.id) ? active : null;
-    if (auto != null) {
-      return _SelectedSummary(
-        label: shown == null ? auto : '$auto · ${shown.name}',
-        latencyMs: shown?.latencyMs,
-      );
-    }
-    if (shown == null || state.autoSubscription != null) return null;
-    return _SelectedSummary(label: shown.name, latencyMs: shown.latencyMs);
+  static Widget? of(AppState state, List<ProxyProfile> servers) {
+    final selected = state.selectedProfile;
+    if (selected == null || !servers.any((p) => p.id == selected.id)) return null;
+    return _SelectedSummary(profile: selected);
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final label = ServerLabel.of(profile.name);
+    final country = label.country;
     return Row(
       children: [
         Icon(Icons.radio_button_checked_rounded, size: 14, color: scheme.primary),
         const SizedBox(width: 6),
+        if (country != null) ...[
+          FlagChip(country, height: 12),
+          const SizedBox(width: 6),
+        ],
         Flexible(
-          child: Text(label,
+          child: Text(label.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         ),
         const SizedBox(width: 8),
-        LatencyBadge(latencyMs),
+        LatencyBadge(profile.latencyMs),
       ],
     );
   }
 }
 
-/// A row with a radio-style marker, used for servers and "auto-select".
+/// A row with a radio-style marker: one server of the list.
 class _SelectableRow extends StatelessWidget {
   const _SelectableRow({
     required this.selected,
@@ -652,6 +640,7 @@ class _SelectableRow extends StatelessWidget {
     required this.subtitle,
     this.leading,
     this.trailing,
+    this.backdrop,
   });
 
   final bool selected;
@@ -661,52 +650,67 @@ class _SelectableRow extends StatelessWidget {
   final Widget? leading;
   final Widget? trailing;
 
+  /// Painted behind the far end of the row (the server's flag).
+  final Widget? backdrop;
+
+  /// How much of the row's end the [backdrop] covers.
+  static const backdropWidth = 170.0;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      color: selected ? scheme.primary.withValues(alpha: 0.14) : Colors.transparent,
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 2, 6),
-            child: Row(
-              children: [
-                Icon(
-                  selected
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  size: 20,
-                  color: selected ? scheme.primary : scheme.outline,
+    final row = Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 2, 6),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                size: 20,
+                color: selected ? scheme.primary : scheme.outline,
+              ),
+              const SizedBox(width: 10),
+              if (leading != null) ...[leading!, const SizedBox(width: 8)],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: selected ? FontWeight.w600 : FontWeight.w500)),
+                    Text(subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                if (leading != null) ...[leading!, const SizedBox(width: 8)],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: selected ? FontWeight.w600 : FontWeight.w500)),
-                      Text(subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-                trailing ?? const SizedBox(width: 12),
-              ],
-            ),
+              ),
+              trailing ?? const SizedBox(width: 12),
+            ],
           ),
         ),
       ),
+    );
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      color: selected ? scheme.primary.withValues(alpha: 0.14) : Colors.transparent,
+      child: backdrop == null
+          ? row
+          : Stack(
+              children: [
+                Positioned(
+                    top: 0, bottom: 0, right: 0, width: backdropWidth, child: backdrop!),
+                row,
+              ],
+            ),
     );
   }
 }
@@ -719,25 +723,20 @@ class _ServerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final s = S.of(context);
-    final selected =
-        state.autoSubscription == null && state.selectedProfile?.id == profile.id;
-    final inUse = state.autoSubscription != null &&
-        state.autoSelectedProfileId == profile.id;
+    // A country named in the server's name gives the row its flag.
+    final label = ServerLabel.of(profile.name);
+    final country = label.country;
 
     return _SelectableRow(
-      selected: selected,
+      selected: state.selectedProfile?.id == profile.id,
       onTap: () => state.selectProfile(profile.id),
-      title: profile.name,
+      leading: country == null ? null : FlagChip(country),
+      backdrop: country == null ? null : FlagBackdrop(country),
+      title: label.title,
       subtitle: '${profile.summary} · ${profile.server}',
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (inUse)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Icon(Icons.auto_awesome_rounded,
-                  size: 16, color: Theme.of(context).colorScheme.primary),
-            ),
           LatencyBadge(profile.latencyMs, testing: state.testingLatency),
           PopupMenuButton<String>(
             iconSize: 20,

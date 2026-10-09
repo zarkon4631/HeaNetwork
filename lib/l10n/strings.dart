@@ -49,9 +49,6 @@ class S {
       'Add a server from a link, a QR code or a subscription');
   String get addServer => _t('Добавить сервер', 'Add server');
   String get currentServer => _t('Сервер', 'Server');
-  String get autoSelect => _t('Автовыбор', 'Auto-select');
-  String autoSelectOf(String sub) =>
-      _t('Лучший сервер из «$sub»', 'Best server of “$sub”');
   String get mode => _t('Режим', 'Mode');
   String get modeProxy => _t('Системный прокси', 'System proxy');
   String get modeTun => _t('VPN (весь трафик)', 'VPN (all traffic)');
@@ -362,9 +359,22 @@ class S {
       'Turn off on weak devices or to save battery');
   String get sendHwid => _t('Отправлять HWID в панель', 'Send HWID to the panel');
   String get sendHwidHint => _t(
-      'Идентификатор устройства для лимита устройств в 3x-ui. Передаётся только серверу подписки',
-      'A device id for the 3x-ui device limit. Sent to the subscription server only');
+      'Идентификатор устройства для лимита устройств в 3x-ui и ваш IP-адрес для статистики. Передаются только серверу подписки',
+      'A device id for the 3x-ui device limit and your IP address for statistics. Sent to the subscription server only');
   String deviceId(String id) => _t('ID устройства: $id', 'Device id: $id');
+
+  // ---- quick settings tile (Android)
+  String get quickTile => _t('Кнопка в шторке', 'Quick settings tile');
+  String get quickTileHint => _t(
+      'Подключение одним нажатием из панели быстрых настроек — той, что открывается свайпом сверху',
+      'Connect with one tap from the quick settings panel, the one a swipe down from the top opens');
+  String get quickTileAdded =>
+      _t('Кнопка добавлена в шторку', 'The tile is now in quick settings');
+  String get quickTileAlready =>
+      _t('Кнопка уже есть в шторке', 'The tile is already in quick settings');
+  String get quickTileManual => _t(
+      'Откройте шторку, нажмите «Изменить» (значок карандаша) и перетащите плитку HeaNetwork к остальным.',
+      'Open quick settings, tap Edit (the pencil icon) and drag the HeaNetwork tile in with the others.');
   String get profileWins => _t(
       'Параметры, заданные в самом сервере или подписке, всегда имеют приоритет: приложение только добавляет недостающее.',
       'Settings carried by the server or subscription always take priority: the app only adds what is missing.');

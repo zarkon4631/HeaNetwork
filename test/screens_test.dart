@@ -248,11 +248,8 @@ void main() {
         final state = makeState(platform: platform, tv: isTv);
         state.settings.locale = 'ru';
         state.subscriptions.single.collapsed = true;
-        // Auto-select over the folded subscription is named in its header.
-        state.selectAuto(state.subscriptions.single.id);
         await pumpApp(tester, state, size: size);
         expect(find.text('Германия · XHTTP'), findsNothing);
-        expect(find.text('Автовыбор'), findsWidgets);
 
         // The menu button inside the header opens the menu, not the group.
         await tester.ensureVisible(find.text('Hea Premium'));

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/services/device_identity.dart';
 import 'package:heanetwork/core/services/lan_receiver.dart';
+import 'package:heanetwork/core/services/public_ip.dart';
 import 'package:heanetwork/core/services/subscription_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -151,6 +152,46 @@ void main() {
       await state.refreshSubscription(sub);
       expect(log.last.headers.containsKey('X-HWID'), isFalse);
       expect(log.last.headers.containsKey('X-Device-Model'), isFalse);
+    });
+
+    test('the device\'s address travels with its identity', () async {
+      final log = <http.Request>[];
+      var lookups = 0;
+      final state = makeState(
+          populated: false,
+          subscriptionClient: panel([
+            [sampleLinks['vless-reality-vision']!],
+          ], log: log),
+          publicIp: PublicIp(() async {
+            lookups++;
+            return '203.0.113.7';
+          }));
+      final sub = await state.addSubscription('https://panel.example/sub/abc');
+      // The headers a reverse proxy sets, so a server needs nothing special.
+      expect(log.last.headers['X-Real-IP'], '203.0.113.7');
+      expect(log.last.headers['X-Forwarded-For'], '203.0.113.7');
+      expect(log.last.headers['X-HWID'], state.device!.hwid);
+
+      await state.refreshSubscription(sub);
+      expect(lookups, 1, reason: 'refreshing again does not ask again');
+
+      state.updateSettings((s) => s.sendHwid = false, affectsCore: false);
+      await state.refreshSubscription(sub);
+      expect(log.last.headers.containsKey('X-Real-IP'), isFalse);
+      expect(log.last.headers.containsKey('X-Forwarded-For'), isFalse);
+    });
+
+    test('an address that cannot be learnt does not hold a subscription up', () async {
+      final log = <http.Request>[];
+      final state = makeState(
+          populated: false,
+          subscriptionClient: panel([
+            [sampleLinks['vless-reality-vision']!],
+          ], log: log),
+          publicIp: PublicIp(() async => throw StateError('offline')));
+      await state.addSubscription('https://panel.example/sub/abc');
+      expect(log.last.headers.containsKey('X-Real-IP'), isFalse);
+      expect(log.last.headers['X-HWID'], state.device!.hwid);
     });
 
     test('a refresh keeps the selection and the measured delay', () async {

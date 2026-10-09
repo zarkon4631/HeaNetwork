@@ -23,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.github.zarkon4631.heanetwork.MainActivity
 import io.github.zarkon4631.heanetwork.R
+import io.github.zarkon4631.heanetwork.tile.HeaTileService
 import io.github.zarkon4631.heanetwork.widget.HeaWidgetProvider
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
@@ -119,6 +120,7 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             main.post {
                 onStatus?.invoke(newStatus, error)
                 appContext?.let { HeaWidgetProvider.refresh(it) }
+                HeaTileService.refresh()
             }
         }
 

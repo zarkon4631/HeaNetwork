@@ -9,6 +9,41 @@ import '../l10n/strings.dart';
 import '../state/app_state.dart';
 import 'widgets.dart';
 
+/// Asks Android to put the connect tile into the quick settings panel.
+Future<void> _addQuickTile(BuildContext context) async {
+  final s = S.of(context);
+  String? outcome;
+  try {
+    outcome = await const MethodChannel('hea/core').invokeMethod<String>('addTile');
+  } on PlatformException {
+    outcome = null;
+  } on MissingPluginException {
+    outcome = null;
+  }
+  if (!context.mounted) return;
+  switch (outcome) {
+    case 'added':
+      showSnack(context, s.quickTileAdded);
+    case 'already':
+      showSnack(context, s.quickTileAlready);
+    case 'declined':
+      return;
+    default:
+      // No prompt for it on this Android: the tile is dragged in by hand.
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(s.quickTile),
+          content: SizedBox(width: 400, child: Text(s.quickTileManual)),
+          actions: [
+            FilledButton(
+                onPressed: () => Navigator.pop(context), child: Text(s.ok)),
+          ],
+        ),
+      );
+  }
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
@@ -157,6 +192,16 @@ class SettingsPage extends StatelessWidget {
                 onChanged: (v) =>
                     state.updateSettings((x) => x.autoConnect = v, affectsCore: false),
               ),
+              // A TV has no quick settings panel.
+              if (state.isAndroid && !state.isTv)
+                ListTile(
+                  title: Text(s.quickTile),
+                  subtitle: Text(s.quickTileHint),
+                  trailing: FilledButton.tonal(
+                    onPressed: () => _addQuickTile(context),
+                    child: Text(s.add),
+                  ),
+                ),
               if (state.isWindows)
                 ListTile(
                   title: Text(s.closeBehaviour),

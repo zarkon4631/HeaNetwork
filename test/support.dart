@@ -10,6 +10,7 @@ import 'package:heanetwork/core/parsers/import_parser.dart';
 import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/services/device_identity.dart';
 import 'package:heanetwork/core/services/latency_tester.dart';
+import 'package:heanetwork/core/services/public_ip.dart';
 import 'package:heanetwork/core/services/storage.dart';
 import 'package:heanetwork/core/services/updater.dart';
 import 'package:heanetwork/state/app_state.dart';
@@ -116,6 +117,7 @@ AppState makeState({
   http.Client? client,
   http.Client? subscriptionClient,
   TcpProbe? tcpProbe,
+  PublicIp? publicIp,
   CoreController? core,
 }) {
   final dir = Directory.systemTemp.createTempSync('hea_ui_');
@@ -205,6 +207,7 @@ AppState makeState({
     updater: Updater(client: client ?? offlineClient()),
     httpClient: subscriptionClient,
     tcpProbe: tcpProbe,
+    publicIp: publicIp,
     device: DeviceIdentity(
       hwid: DeviceIdentity.hash('test-device'),
       os: tv ? 'Android TV' : (platform == CorePlatform.windows ? 'Windows' : 'Android'),

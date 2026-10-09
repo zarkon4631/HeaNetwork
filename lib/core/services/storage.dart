@@ -70,7 +70,24 @@ class AppStore {
           .toList();
     }
     final st = await _read('settings.json');
-    if (st is Map) settings = AppSettings.fromJson(Map<String, dynamic>.from(st));
+    if (st is Map) {
+      settings = AppSettings.fromJson(Map<String, dynamic>.from(st));
+      // Up to 1.0.3 a whole subscription could be selected ("auto-select").
+      // Such a setting turns into that subscription's fastest known server.
+      final auto = st['selectedSubscriptionId'];
+      if (auto is String) {
+        int rank(ProxyProfile p) {
+          final ms = p.latencyMs;
+          return ms == null || ms < 0 ? 1 << 30 : ms;
+        }
+
+        ProxyProfile? best;
+        for (final p in profiles.where((p) => p.subscriptionId == auto)) {
+          if (best == null || rank(p) < rank(best)) best = p;
+        }
+        if (best != null) settings.selectedProfileId = best.id;
+      }
+    }
     final r = await _read('routing.json');
     if (r is Map) routing = RoutingSettings.fromJson(Map<String, dynamic>.from(r));
   }

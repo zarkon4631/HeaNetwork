@@ -86,19 +86,6 @@ class ClashApi {
     }
   }
 
-  /// The outbound a selector/urltest group currently routes through.
-  Future<String?> currentOf(String group) async {
-    try {
-      final res = await _send('GET', _uri('/proxies/${Uri.encodeComponent(group)}'))
-          .timeout(const Duration(seconds: 3));
-      final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode != 200) return null;
-      return (jsonDecode(body) as Map)['now'] as String?;
-    } on Object {
-      return null;
-    }
-  }
-
   Future<void> closeAllConnections() async {
     try {
       final res = await _send('DELETE', _uri('/connections'))

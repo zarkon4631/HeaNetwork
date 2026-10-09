@@ -1,7 +1,9 @@
 package io.github.zarkon4631.heanetwork
 
 import android.Manifest
+import android.app.StatusBarManager
 import android.app.UiModeManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.res.Configuration
 import android.provider.Settings
@@ -9,6 +11,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -21,15 +24,18 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.github.zarkon4631.heanetwork.tile.HeaTileService
 import io.github.zarkon4631.heanetwork.vpn.DefaultNetworkMonitor
 import io.github.zarkon4631.heanetwork.vpn.HeaVpnService
 import io.github.zarkon4631.heanetwork.widget.HeaWidgetProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.URL
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -38,6 +44,9 @@ class MainActivity : FlutterActivity() {
         const val REQUEST_VPN = 4101
         const val REQUEST_NOTIFICATIONS = 4102
         const val ICON_SIZE = 96
+
+        /** What an address service answers with: one IPv4 or IPv6 address. */
+        val ADDRESS = Regex("[0-9A-Fa-f:.]{7,45}")
     }
 
     private val background = Executors.newCachedThreadPool()
@@ -87,7 +96,16 @@ class MainActivity : FlutterActivity() {
             "device" -> result.success(deviceInfo())
             "refreshWidget" -> {
                 HeaWidgetProvider.refresh(this)
+                HeaTileService.refresh()
                 result.success(null)
+            }
+            "addTile" -> addTile(result)
+            "publicIp" -> {
+                val urls = call.argument<List<String>>("urls").orEmpty()
+                background.execute {
+                    val ip = runCatching { publicIp(urls) }.getOrNull()
+                    runOnUiThread { result.success(ip) }
+                }
             }
             "installApk" -> installApk(call.argument<String>("path"), result)
             "tcpPing" -> {
@@ -151,6 +169,69 @@ class MainActivity : FlutterActivity() {
         val second = runCatching { connectTime(network, address, port, timeoutMs) }
             .getOrDefault(first)
         return minOf(first, second)
+    }
+
+    /**
+     * This device's address as the first of the address services at [urls]
+     * to answer sees it. Asked over the real network: while the VPN is up
+     * this app's own requests leave through the tunnel, and the answer
+     * would be the VPN server's address.
+     */
+    private fun publicIp(urls: List<String>): String? {
+        val network = underlyingNetwork()
+        for (url in urls) {
+            val answer = runCatching {
+                val target = URL(url)
+                val connection =
+                    (network?.openConnection(target) ?: target.openConnection()) as HttpURLConnection
+                try {
+                    connection.connectTimeout = 2500
+                    connection.readTimeout = 2500
+                    connection.setRequestProperty("User-Agent", "HeaNetwork")
+                    if (connection.responseCode != 200) {
+                        null
+                    } else {
+                        connection.inputStream.bufferedReader().use { it.readLine() }?.trim()
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrNull()
+            if (answer != null && ADDRESS.matches(answer)) return answer
+        }
+        return null
+    }
+
+    /**
+     * Offers to put the connect tile into the quick settings panel. Android
+     * has a prompt for that since 13; before it the user drags the tile in
+     * by hand, which the app then explains.
+     */
+    private fun addTile(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < 33) {
+            result.success("manual")
+            return
+        }
+        try {
+            getSystemService(StatusBarManager::class.java).requestAddTileService(
+                ComponentName(this, HeaTileService::class.java),
+                getString(R.string.app_name),
+                Icon.createWithResource(this, R.drawable.ic_tile),
+                mainExecutor,
+            ) { code ->
+                result.success(
+                    when (code) {
+                        StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED -> "added"
+                        StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED -> "already"
+                        StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED -> "declined"
+                        // The system could not show its prompt.
+                        else -> "manual"
+                    },
+                )
+            }
+        } catch (e: Exception) {
+            result.success("manual")
+        }
     }
 
     /**

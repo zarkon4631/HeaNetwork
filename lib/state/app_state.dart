@@ -13,6 +13,7 @@ import '../core/parsers/import_parser.dart';
 import '../core/services/clash_api.dart';
 import '../core/services/core_controller.dart';
 import '../core/services/latency_tester.dart';
+import '../core/services/public_ip.dart';
 import '../core/services/storage.dart';
 import '../core/services/subscription_service.dart';
 import 'package:http/http.dart' as http;
@@ -76,6 +77,7 @@ class AppState extends ChangeNotifier {
     this.device,
     this.httpClient,
     this.tcpProbe,
+    this.publicIp,
     bool? elevated,
     Updater? updater,
   })  : elevated = elevated ??
@@ -105,6 +107,10 @@ class AppState extends ChangeNotifier {
 
   /// Opens the TCP connections of the delay test; tests substitute a fake.
   final TcpProbe? tcpProbe;
+
+  /// Learns the address this device is seen under, which subscription
+  /// requests then carry; null sends none.
+  final PublicIp? publicIp;
 
   bool get isWindows => platform == CorePlatform.windows;
   bool get isAndroid => platform == CorePlatform.android;
@@ -138,25 +144,15 @@ class AppState extends ChangeNotifier {
   /// The mode the running core was started in.
   ConnectionMode? activeMode;
 
-  /// In auto-select mode, the server the group currently uses.
-  String? autoSelectedProfileId;
-
   ClashApi? _clash;
   StreamSubscription<TrafficSample>? _trafficSub;
-  Timer? _groupTimer;
   Set<String> _ruleSets = {};
   CoreStatus _lastStatus = CoreStatus.stopped;
 
   // ---- selection --------------------------------------------------------
 
-  Subscription? get autoSubscription {
-    final id = settings.selectedSubscriptionId;
-    if (id == null) return null;
-    return subscriptions.where((s) => s.id == id).firstOrNull;
-  }
-
+  /// The server a connection uses.
   ProxyProfile? get selectedProfile {
-    if (autoSubscription != null) return null;
     final id = settings.selectedProfileId;
     return profiles.where((p) => p.id == id).firstOrNull ??
         (profiles.isEmpty ? null : profiles.first);
@@ -165,39 +161,17 @@ class AppState extends ChangeNotifier {
   List<ProxyProfile> profilesOf(String? subscriptionId) =>
       profiles.where((p) => p.subscriptionId == subscriptionId).toList();
 
-  /// The servers a connection would use right now.
-  List<ProxyProfile> get connectionProfiles {
-    final sub = autoSubscription;
-    if (sub != null) return profilesOf(sub.id);
-    final p = selectedProfile;
-    return p == null ? const [] : [p];
-  }
-
-  ProxyProfile? get activeProfile {
-    if (autoSubscription == null) return selectedProfile;
-    return profiles.where((p) => p.id == autoSelectedProfileId).firstOrNull;
-  }
-
   void selectProfile(String id) {
-    settings
-      ..selectedProfileId = id
-      ..selectedSubscriptionId = null;
+    settings.selectedProfileId = id;
     _settingsChanged(affectsCore: true);
   }
 
   /// Follows a server chosen outside the app (the home-screen widget), which
   /// has already moved the live connection, so no reconnect is pending.
   void adoptExternalSelection(String id) {
-    settings
-      ..selectedProfileId = id
-      ..selectedSubscriptionId = null;
+    settings.selectedProfileId = id;
     unawaited(store.saveSettings());
     notifyListeners();
-  }
-
-  void selectAuto(String subscriptionId) {
-    settings.selectedSubscriptionId = subscriptionId;
-    _settingsChanged(affectsCore: true);
   }
 
   // ---- startup ----------------------------------------------------------
@@ -210,8 +184,9 @@ class AppState extends ChangeNotifier {
     if (c is ProcessCoreController) c.killOrphan();
     // A proxy setting that survived the app points at a dead port.
     systemProxy?.restore();
-    // A VPN already up (started earlier, or by the widget) is picked up by
-    // the status listener, which attaches the statistics to it.
+    // A VPN already up (started earlier, by the widget or by the quick
+    // settings tile) is picked up by the status listener, which attaches the
+    // statistics to it.
     if (c is AndroidCoreController) await c.sync();
     if ((connect || settings.autoConnect) && status == CoreStatus.stopped) {
       try {
@@ -261,16 +236,16 @@ class AppState extends ChangeNotifier {
     return List.generate(24, (_) => r.nextInt(16).toRadixString(16)).join();
   }
 
-  /// The core configuration for connecting through [using] with the current
-  /// settings and routing.
+  /// The core configuration for connecting through [profile] with the
+  /// current settings and routing.
   Map<String, dynamic> configFor(
-    List<ProxyProfile> using, {
+    ProxyProfile profile, {
     required int clashPort,
     required String clashSecret,
     int? mixedPort,
   }) =>
       buildConfig(
-        profiles: using,
+        profile: profile,
         settings: settings,
         routing: routing,
         serverDomains: {
@@ -296,12 +271,12 @@ class AppState extends ChangeNotifier {
   /// configurations it starts from are stale.
   int configRevision = 0;
 
-  // On Android the VPN can be started by the home-screen widget while the
-  // app is closed, so whoever starts it leaves a note on how to reach the
-  // running core.
+  // On Android the VPN can be started by the home-screen widget or the quick
+  // settings tile while the app is closed, so whoever starts it leaves a note
+  // on how to reach the running core.
   File get _activeFile => File('${paths.run.path}${Platform.pathSeparator}active.json');
 
-  Future<void> _writeActive(String? profileId, int clashPort, String secret) async {
+  Future<void> _writeActive(String profileId, int clashPort, String secret) async {
     try {
       await paths.run.create(recursive: true);
       await _activeFile.writeAsString(jsonEncode(
@@ -321,13 +296,11 @@ class AppState extends ChangeNotifier {
       if (port <= 0) return;
       final id = note['profileId'];
       if (id is String && profiles.any((p) => p.id == id)) {
-        settings
-          ..selectedProfileId = id
-          ..selectedSubscriptionId = null;
+        settings.selectedProfileId = id;
       }
       activeMode = ConnectionMode.tun;
       _clash = ClashApi(port, secret);
-      _startStats(false);
+      _startStats();
     } on Object {
       // No note or an unreadable one: connected, just without live numbers.
       connectedSince = DateTime.now();
@@ -342,8 +315,8 @@ class AppState extends ChangeNotifier {
   Future<void> connect() async {
     if (status != CoreStatus.stopped || _connectingSince != null) return;
     error = null;
-    final using = connectionProfiles;
-    if (using.isEmpty) {
+    final profile = selectedProfile;
+    if (profile == null) {
       error = 'no-server';
       notifyListeners();
       return;
@@ -357,7 +330,7 @@ class AppState extends ChangeNotifier {
       final mixedPort = await freeTcpPort(settings.mixedPort);
       final clashPort = await freeTcpPort();
       final secret = _newSecret();
-      final config = configFor(using,
+      final config = configFor(profile,
           clashPort: clashPort, clashSecret: secret, mixedPort: mixedPort);
       pendingRestart = false;
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
@@ -371,11 +344,9 @@ class AppState extends ChangeNotifier {
       if (isWindows && settings.mode == ConnectionMode.systemProxy) {
         systemProxy?.enable(mixedPort);
       }
-      if (isAndroid) {
-        await _writeActive(using.length == 1 ? using.single.id : null, clashPort, secret);
-      }
+      if (isAndroid) await _writeActive(profile.id, clashPort, secret);
       _clash = ClashApi(clashPort, secret);
-      _startStats(using.length > 1);
+      _startStats();
     } on CoreCancelled {
       // Called off by the user: nothing went wrong, nothing to report.
       activeMode = null;
@@ -429,7 +400,7 @@ class AppState extends ChangeNotifier {
     await connect();
   }
 
-  void _startStats(bool autoGroup) {
+  void _startStats() {
     connectedSince = DateTime.now();
     totalUp = totalDown = 0;
     speed = const TrafficSample(0, 0);
@@ -439,35 +410,20 @@ class AppState extends ChangeNotifier {
       totalDown += s.down;
       notifyListeners();
     }, onError: (_) {}, cancelOnError: true);
-    if (autoGroup) {
-      Future<void> poll() async {
-        final now = await _clash?.currentOf(tagProxy);
-        final id = now?.startsWith('p-') == true ? now!.substring(2) : null;
-        if (id != autoSelectedProfileId) {
-          autoSelectedProfileId = id;
-          notifyListeners();
-        }
-      }
-
-      unawaited(poll());
-      _groupTimer = Timer.periodic(const Duration(seconds: 10), (_) => poll());
-    }
   }
 
   void _stopStats() {
     _trafficSub?.cancel();
     _trafficSub = null;
-    _groupTimer?.cancel();
-    _groupTimer = null;
     _clash?.close();
     _clash = null;
     connectedSince = null;
-    autoSelectedProfileId = null;
     speed = const TrafficSample(0, 0);
   }
 
   /// True while [connect] itself is bringing the core up, as opposed to the
-  /// home-screen widget doing so behind the app's back.
+  /// home-screen widget or the quick settings tile doing so behind the app's
+  /// back.
   bool _startingHere = false;
 
   void _onCoreChanged() {
@@ -476,7 +432,7 @@ class AppState extends ChangeNotifier {
         now == CoreStatus.running &&
         _lastStatus != CoreStatus.running &&
         !_startingHere) {
-      // Started or switched by the widget: follow it.
+      // Started or switched by the widget or the tile: follow it.
       _stopStats();
       unawaited(_attachToRunning());
     }
@@ -555,9 +511,7 @@ class AppState extends ChangeNotifier {
 
   void _addProfiles(Iterable<ProxyProfile> list) {
     profiles.addAll(list);
-    if (settings.selectedProfileId == null &&
-        settings.selectedSubscriptionId == null &&
-        profiles.isNotEmpty) {
+    if (settings.selectedProfileId == null && profiles.isNotEmpty) {
       settings.selectedProfileId = profiles.first.id;
       unawaited(store.saveSettings());
     }
@@ -607,13 +561,21 @@ class AppState extends ChangeNotifier {
     _profilesChanged();
   }
 
-  Future<SubscriptionResult> _fetch(String url) => fetchSubscription(
-        url,
-        client: httpClient,
-        userAgent: 'HeaNetwork/$appVersion',
-        deviceHeaders:
-            settings.sendHwid ? (device?.headers ?? const {}) : const {},
-      );
+  /// One request to a subscription server. With device identification on it
+  /// names the device and the address it is seen under, which a server
+  /// behind a proxy, or one reached through the tunnel, cannot tell itself.
+  Future<SubscriptionResult> _fetch(String url) async {
+    final identify = settings.sendHwid;
+    return fetchSubscription(
+      url,
+      client: httpClient,
+      userAgent: 'HeaNetwork/$appVersion',
+      deviceHeaders: {
+        if (identify) ...?device?.headers,
+        if (identify) ...addressHeaders(await publicIp?.current()),
+      },
+    );
+  }
 
   Future<Subscription> addSubscription(String url, {String? name}) async {
     final sub = Subscription(name: name ?? '', url: url.trim());
@@ -674,7 +636,7 @@ class AppState extends ChangeNotifier {
 
   void _applySubscription(Subscription sub, SubscriptionResult result) {
     final old = profilesOf(sub.id);
-    final activeBefore = activeProfile;
+    final activeBefore = selectedProfile;
     final activeFingerprint =
         activeBefore == null ? null : _fingerprint(activeBefore);
 
@@ -719,10 +681,9 @@ class AppState extends ChangeNotifier {
     // Only bother the user about reconnecting when the server in use
     // actually changed; a routine refresh must not nag.
     if (status != CoreStatus.stopped) {
-      final activeAfter = activeProfile;
-      final changed = autoSubscription?.id == sub.id ||
-          (activeBefore?.subscriptionId == sub.id &&
-              (activeAfter == null || _fingerprint(activeAfter) != activeFingerprint));
+      final activeAfter = selectedProfile;
+      final changed = activeBefore?.subscriptionId == sub.id &&
+          (activeAfter == null || _fingerprint(activeAfter) != activeFingerprint);
       if (changed) pendingRestart = true;
     }
   }
@@ -749,9 +710,6 @@ class AppState extends ChangeNotifier {
   void deleteSubscription(Subscription sub) {
     profiles.removeWhere((p) => p.subscriptionId == sub.id);
     subscriptions.remove(sub);
-    if (settings.selectedSubscriptionId == sub.id) {
-      settings.selectedSubscriptionId = null;
-    }
     if (!profiles.any((p) => p.id == settings.selectedProfileId)) {
       settings.selectedProfileId = profiles.firstOrNull?.id;
     }

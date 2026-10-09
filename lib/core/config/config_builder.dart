@@ -196,21 +196,17 @@ Map<String, dynamic> _domainConditions(Iterable<DomainRule> rules,
   return out;
 }
 
-/// Builds the full core config for connecting through [profiles]. With one
-/// profile it is used directly; with several they are wrapped in a urltest
-/// group that keeps the fastest one selected.
+/// Builds the full core config for connecting through [profile].
 ///
 /// [serverDomains] are the host names of all the user's servers, connected
 /// or not; they matter only with FakeIP (see below).
 Map<String, dynamic> buildConfig({
-  required List<ProxyProfile> profiles,
+  required ProxyProfile profile,
   required AppSettings settings,
   required RoutingSettings routing,
   required BuildEnv env,
   Iterable<String> serverDomains = const [],
 }) {
-  if (profiles.isEmpty) throw ArgumentError('no profile to connect with');
-
   final isAndroid = env.platform == CorePlatform.android;
   final tun = isAndroid || settings.mode == ConnectionMode.tun;
   final antiDpi = settings.antiDpi.effective;
@@ -219,28 +215,10 @@ Map<String, dynamic> buildConfig({
   // ---- outbounds / endpoints -------------------------------------------
   final outbounds = <Map<String, dynamic>>[];
   final endpoints = <Map<String, dynamic>>[];
-  void addProfile(ProxyProfile p, String tag) {
-    final o = hardenOutbound(p, settings.antiDpi,
-        elevated: env.elevated, platform: env.platform)
-      ..['tag'] = tag;
-    (p.isEndpoint ? endpoints : outbounds).add(o);
-  }
-
-  if (profiles.length == 1) {
-    addProfile(profiles.single, tagProxy);
-  } else {
-    for (final p in profiles) {
-      addProfile(p, profileTag(p));
-    }
-    outbounds.add({
-      'type': 'urltest',
-      'tag': tagProxy,
-      'outbounds': profiles.map(profileTag).toList(),
-      'url': urlTestTarget,
-      'interval': '3m',
-      'tolerance': 50,
-    });
-  }
+  (profile.isEndpoint ? endpoints : outbounds).add(hardenOutbound(
+      profile, settings.antiDpi,
+      elevated: env.elevated, platform: env.platform)
+    ..['tag'] = tagProxy);
   outbounds.add({'type': 'direct', 'tag': tagDirect});
 
   // ---- inbounds ---------------------------------------------------------
@@ -400,8 +378,8 @@ Map<String, dynamic> buildConfig({
   // ---- dns --------------------------------------------------------------
   // An HTTP proxy cannot carry UDP and a SOCKS one often will not, which
   // is what a bare DNS address would need; TCP gets through both.
-  final proxyCarriesUdp = profiles
-      .every((p) => p.type != Protocol.http && p.type != Protocol.socks);
+  final proxyCarriesUdp =
+      profile.type != Protocol.http && profile.type != Protocol.socks;
   final dnsServers = <Map<String, dynamic>>[
     dnsServer(settings.remoteDns, tagDnsRemote,
         detour: tagProxy, preferTcp: !proxyCarriesUdp),

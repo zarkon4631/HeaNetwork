@@ -241,7 +241,6 @@ class AppSettings {
     this.ownServersCollapsed = false,
     List<PortForward>? portForwards,
     this.selectedProfileId,
-    this.selectedSubscriptionId,
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
         portForwards = portForwards ?? [],
         installId = installId ?? newId() + newId();
@@ -289,10 +288,8 @@ class AppSettings {
   bool ownServersCollapsed;
   List<PortForward> portForwards;
 
-  /// The server to connect to, or null when [selectedSubscriptionId] names a
-  /// subscription to auto-select from.
+  /// The server to connect to.
   String? selectedProfileId;
-  String? selectedSubscriptionId;
 
   Map<String, dynamic> toJson() => {
         'locale': locale,
@@ -321,7 +318,6 @@ class AppSettings {
         'ownServersCollapsed': ownServersCollapsed,
         'portForwards': portForwards.map((e) => e.toJson()).toList(),
         'selectedProfileId': selectedProfileId,
-        'selectedSubscriptionId': selectedSubscriptionId,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -359,7 +355,6 @@ class AppSettings {
             .map((e) => PortForward.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
         selectedProfileId: j['selectedProfileId'] as String?,
-        selectedSubscriptionId: j['selectedSubscriptionId'] as String?,
       );
 }
 

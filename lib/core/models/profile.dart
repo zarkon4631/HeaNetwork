@@ -169,7 +169,6 @@ class Subscription {
     this.downloadBytes,
     this.totalBytes,
     this.expireAt,
-    this.autoSelect = false,
     this.updateIntervalHours,
     this.supportUrl,
     this.webPageUrl,
@@ -190,9 +189,6 @@ class Subscription {
   int? downloadBytes;
   int? totalBytes;
   DateTime? expireAt;
-
-  /// Connect through a urltest group over every server of this subscription.
-  bool autoSelect;
 
   // What the panel asks of the client, from the response headers.
   /// `profile-update-interval`: refresh at least this often.
@@ -220,7 +216,6 @@ class Subscription {
         if (downloadBytes != null) 'downloadBytes': downloadBytes,
         if (totalBytes != null) 'totalBytes': totalBytes,
         if (expireAt != null) 'expireAt': expireAt!.toIso8601String(),
-        'autoSelect': autoSelect,
         if (updateIntervalHours != null) 'updateIntervalHours': updateIntervalHours,
         if (supportUrl != null) 'supportUrl': supportUrl,
         if (webPageUrl != null) 'webPageUrl': webPageUrl,
@@ -237,7 +232,6 @@ class Subscription {
         downloadBytes: (j['downloadBytes'] as num?)?.toInt(),
         totalBytes: (j['totalBytes'] as num?)?.toInt(),
         expireAt: DateTime.tryParse(j['expireAt'] as String? ?? ''),
-        autoSelect: j['autoSelect'] as bool? ?? false,
         updateIntervalHours: (j['updateIntervalHours'] as num?)?.toInt(),
         supportUrl: j['supportUrl'] as String?,
         webPageUrl: j['webPageUrl'] as String?,

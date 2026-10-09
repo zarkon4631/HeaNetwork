@@ -229,7 +229,7 @@ Future<void> coreAccepts(ProxyProfile p, String label, {AntiDpiPreset? preset}) 
   final tmp = Directory.systemTemp.createTempSync('hea_panel_');
   try {
     final config = buildConfig(
-      profiles: [p],
+      profile: p,
       settings: AppSettings(antiDpi: AntiDpiSettings(preset: preset ?? AntiDpiPreset.balanced)),
       routing: RoutingSettings(),
       env: BuildEnv(

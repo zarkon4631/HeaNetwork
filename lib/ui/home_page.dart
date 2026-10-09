@@ -12,6 +12,7 @@ import '../platform/windows/elevation.dart';
 import '../platform/windows/win32.dart' as win32;
 import '../state/app_state.dart';
 import 'config_list.dart';
+import 'flags.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -129,7 +130,10 @@ class ConnectPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final colors = StatusColors.of(context);
-    final hasServer = state.connectionProfiles.isNotEmpty;
+    final profile = state.selectedProfile;
+    final hasServer = profile != null;
+    final label = profile == null ? null : ServerLabel.of(profile.name);
+    final country = label?.country;
 
     final (title, titleColor) = switch (state.status) {
       CoreStatus.running => (s.statusOn, colors.connected),
@@ -137,14 +141,6 @@ class ConnectPanel extends StatelessWidget {
       CoreStatus.stopping => (s.statusStopping, colors.connecting),
       CoreStatus.stopped => (s.statusOff, theme.colorScheme.onSurface),
     };
-
-    final profile = state.activeProfile;
-    final auto = state.autoSubscription;
-    final serverLine = !hasServer
-        ? s.noServerHint
-        : (auto != null
-            ? '${s.autoSelect}${profile == null ? '' : ' · ${profile.name}'}'
-            : profile!.name);
 
     final content = Column(
       mainAxisSize: MainAxisSize.min,
@@ -213,11 +209,13 @@ class ConnectPanel extends StatelessWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            Icon(auto != null ? Icons.auto_awesome_rounded : Icons.dns_rounded,
-                size: 15, color: muted),
+            if (country != null)
+              FlagChip(country, height: 12)
+            else
+              Icon(Icons.dns_rounded, size: 15, color: muted),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(serverLine,
+              child: Text(label?.title ?? s.noServerHint,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium

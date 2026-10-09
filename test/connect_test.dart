@@ -126,7 +126,7 @@ void main() {
   group('dns', () {
     Map<String, dynamic> remoteServer(ProxyProfile p, [AppSettings? settings]) {
       final config = buildConfig(
-        profiles: [p],
+        profile: p,
         settings: settings ?? AppSettings(),
         routing: RoutingSettings(),
         env: const BuildEnv(

@@ -83,7 +83,7 @@ void main() {
   test('every protocol, system proxy mode, default settings', () async {
     for (final p in allProfiles()) {
       final c = buildConfig(
-        profiles: [p],
+        profile: p,
         settings: AppSettings(),
         routing: RoutingSettings(),
         env: env(CorePlatform.windows),
@@ -109,7 +109,7 @@ void main() {
     );
     for (final p in allProfiles()) {
       final c = buildConfig(
-        profiles: [p],
+        profile: p,
         settings: settings,
         routing: busyRouting(),
         env: env(CorePlatform.windows, elevated: true),
@@ -142,7 +142,7 @@ void main() {
       ),
     );
     final c = buildConfig(
-      profiles: [parseLink(sampleLinks['vless-ws-tls']!)],
+      profile: parseLink(sampleLinks['vless-ws-tls']!),
       settings: settings,
       routing: RoutingSettings(defaultAction: RouteAction.direct, apps: [
         AppRule(name: 'TG', processName: 'Telegram.exe', action: RouteAction.proxy),
@@ -161,7 +161,7 @@ void main() {
   test('android: per-app split via include/exclude package', () async {
     final vless = parseLink(sampleLinks['vless-reality-vision']!);
     final proxyAll = buildConfig(
-      profiles: [vless],
+      profile: vless,
       settings: AppSettings(),
       routing: busyRouting(),
       env: env(CorePlatform.android),
@@ -172,7 +172,7 @@ void main() {
     await check(proxyAll, 'android-proxy-default');
 
     final onlySelected = buildConfig(
-      profiles: [vless],
+      profile: vless,
       settings: AppSettings(),
       routing: busyRouting()..defaultAction = RouteAction.direct,
       env: env(CorePlatform.android),
@@ -181,20 +181,6 @@ void main() {
         (onlySelected['inbounds'] as List).firstWhere((i) => i['type'] == 'tun');
     expect(tun2['include_package'], ['org.telegram.messenger']);
     await check(onlySelected, 'android-direct-default');
-  }, skip: skip);
-
-  test('auto-select group over several servers', () async {
-    final profiles = allProfiles();
-    final c = buildConfig(
-      profiles: profiles,
-      settings: AppSettings(),
-      routing: RoutingSettings(),
-      env: env(CorePlatform.windows),
-    );
-    final group = (c['outbounds'] as List).firstWhere((o) => o['tag'] == tagProxy);
-    expect(group['type'], 'urltest');
-    expect(group['outbounds'], hasLength(profiles.length));
-    await check(c, 'urltest');
   }, skip: skip);
 
   test('latency test config', () async {

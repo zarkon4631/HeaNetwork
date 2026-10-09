@@ -18,7 +18,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    const penguin = AssetImage('assets/icons/penguin.png');
+    const mascot = AssetImage('assets/icons/mascot.png');
     await tester.pumpWidget(RepaintBoundary(
       key: const ValueKey('banner'),
       child: Directionality(
@@ -31,21 +31,29 @@ void main() {
               colors: [Color(0xFF1E2A78), Color(0xFF2F6BFF), Color(0xFF22D3EE)],
             ),
           ),
-          child: Row(
+          child: Stack(
             children: const [
-              SizedBox(width: 14),
-              Image(image: penguin, width: 118, height: 118),
-              SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'HeaNetwork',
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontFamily: 'Roboto',
-                    fontSize: 29,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.3,
+              // The cat's picture ends at its waist, so it stands on the
+              // banner's bottom edge.
+              Positioned(
+                left: 5,
+                bottom: 0,
+                child: Image(image: mascot, width: 128, height: 128),
+              ),
+              Positioned.fill(
+                left: 138,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'HeaNetwork',
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 29,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: -0.3,
+                    ),
                   ),
                 ),
               ),
@@ -55,7 +63,7 @@ void main() {
       ),
     ));
     await tester.runAsync(
-        () => precacheImage(penguin, tester.element(find.byType(DecoratedBox))));
+        () => precacheImage(mascot, tester.element(find.byType(DecoratedBox))));
     await tester.pump();
     expect(tester.takeException(), isNull);
 
