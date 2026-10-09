@@ -1,5 +1,6 @@
 // Composes the app icon — the cat in a hard hat, cut out like a sticker, on
-// a glowing gradient tile — and writes every size the platforms need.
+// a glowing gradient tile — and writes every size the platforms need, plus
+// the one-colour glyph of the same cat for the Android quick settings tile.
 // No dependencies:
 //   node tool/gen_icons.mjs
 //
@@ -436,3 +437,163 @@ for (const [name, scale] of Object.entries(densities)) {
   write(`${res}/ic_launcher_foreground.png`,
     png(adaptive, render(adaptive, { background: 'none', view: VIEW_ADAPTIVE })));
 }
+
+// ---- the quick settings glyph ----------------------------------------------
+// Android paints a tile's icon in a single colour, using only its shape. So
+// the cat is drawn once more as a stencil: its head, traced over mascot.png
+// in that picture's coordinates, and written out as a vector drawable.
+
+/** A band of width `t` along a quadratic curve: a ridge of the hat, a whisker. */
+function band(x1, y1, cx, cy, x2, y2, t) {
+  // Each point moves across the direction the curve has there.
+  const aside = (px, py, dx, dy, by) => {
+    const length = Math.hypot(dx, dy) || 1;
+    return [px - (dy / length) * by, py + (dx / length) * by];
+  };
+  const side = (by) => [
+    aside(x1, y1, cx - x1, cy - y1, by),
+    aside(cx, cy, x2 - x1, y2 - y1, by),
+    aside(x2, y2, x2 - cx, y2 - cy, by),
+  ];
+  const a = side(t / 2), b = side(-t / 2);
+  return [['M', ...a[0]], ['Q', ...a[1], ...a[2]], ['L', ...b[2]], ['Q', ...b[1], ...b[0]], ['Z']];
+}
+
+/** A circle, as four cubic arcs. */
+function disc(cx, cy, r) {
+  const k = 0.5523 * r;
+  return [
+    ['M', cx - r, cy],
+    ['C', cx - r, cy - k, cx - k, cy - r, cx, cy - r],
+    ['C', cx + k, cy - r, cx + r, cy - k, cx + r, cy],
+    ['C', cx + r, cy + k, cx + k, cy + r, cx, cy + r],
+    ['C', cx - k, cy + r, cx - r, cy + k, cx - r, cy],
+    ['Z'],
+  ];
+}
+
+/**
+ * A circle without the part above the line from (x1, y1) to (x2, y2), left
+ * to right: an eye under a drooping lid.
+ */
+function lidded(cx, cy, r, x1, y1, x2, y2) {
+  const points = [];
+  for (let i = 0; i < 40; i++) {
+    const angle = (i / 40) * 2 * Math.PI;
+    const x = cx + Math.cos(angle) * r, y = cy + Math.sin(angle) * r;
+    if ((x2 - x1) * (y - y1) - (y2 - y1) * (x - x1) > 0) points.push([x, y]);
+  }
+  return [['M', ...points[0]], ...points.slice(1).map((p) => ['L', ...p]), ['Z']];
+}
+
+const RIDGE = 8.5;
+const WHISKER = 6.5;
+
+// Shapes with `holes` are filled even-odd: every outline after the first
+// cuts a hole, and an outline inside a hole fills it again. Holes of one
+// shape must not overlap each other.
+const GLYPH = [
+  {
+    name: 'The hat\'s dome, with its ridges cut out',
+    holes: true,
+    d: [
+      ['M', 30, 83], ['C', 32, 46, 56, 9, 95, 8], ['C', 130, 7, 148, 42, 150, 75],
+      ['Q', 88, 92, 30, 83], ['Z'],
+      ...band(47, 71, 45, 46, 61, 28, RIDGE),
+      ...band(73, 74, 72, 48, 84, 24, RIDGE),
+      ...band(101, 72, 103, 48, 97, 24, RIDGE),
+      ...band(127, 66, 127, 44, 113, 27, RIDGE),
+    ],
+  },
+  {
+    name: 'Its brim',
+    d: [
+      ['M', 24, 92], ['Q', 88, 101, 151, 84], ['Q', 159, 89, 152, 96],
+      ['Q', 88, 113, 22, 105], ['Q', 7, 100, 24, 92], ['Z'],
+    ],
+  },
+  {
+    name: 'The face: eyes under drooping lids, a glint in each, nose and mouth',
+    holes: true,
+    d: [
+      ['M', 28, 115], ['Q', 88, 123, 145, 106], ['C', 151, 130, 144, 152, 128, 167],
+      ['C', 116, 179, 102, 188, 88, 189], ['C', 72, 189, 56, 181, 44, 168],
+      ['C', 30, 152, 26, 134, 28, 115], ['Z'],
+      ...lidded(55, 141, 12.5, 40, 139, 69, 129), ...disc(58.5, 141, 3.8),
+      ...lidded(102, 141, 13, 88, 129, 117, 138), ...disc(98.5, 141.5, 4),
+      // The nose, running down into the two halves of the mouth: one outline.
+      ['M', 69, 160], ['L', 86, 160.5], ['L', 80.5, 167.5], ['Q', 84, 174, 90.5, 174.5],
+      ['L', 89.5, 180], ['Q', 82, 180.5, 77.5, 173.5], ['Q', 73, 180.5, 65.5, 180],
+      ['L', 64.5, 174.5], ['Q', 71, 174, 74.5, 167.5], ['Z'],
+    ],
+  },
+  {
+    name: 'Whiskers',
+    d: [
+      ...band(38, 156, 20, 152, 4, 154, WHISKER),
+      ...band(42, 166, 24, 169, 9, 177, WHISKER),
+      ...band(138, 151, 155, 145, 169, 145, WHISKER),
+      ...band(131, 163, 150, 164, 164, 170, WHISKER),
+    ],
+  },
+];
+
+/** Points along an outline, close enough to measure it by. */
+function trace(d) {
+  const points = [];
+  let px = 0, py = 0;
+  for (const [op, ...p] of d) {
+    if (op === 'Z') continue;
+    const steps = op === 'M' || op === 'L' ? 1 : 16;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps, u = 1 - t;
+      if (op === 'Q') {
+        points.push([u * u * px + 2 * u * t * p[0] + t * t * p[2],
+          u * u * py + 2 * u * t * p[1] + t * t * p[3]]);
+      } else if (op === 'C') {
+        points.push([
+          u * u * u * px + 3 * u * u * t * p[0] + 3 * u * t * t * p[2] + t * t * t * p[4],
+          u * u * u * py + 3 * u * u * t * p[1] + 3 * u * t * t * p[3] + t * t * t * p[5]]);
+      } else points.push([p[0], p[1]]);
+    }
+    [px, py] = p.slice(-2);
+  }
+  return points;
+}
+
+/** The glyph as an Android vector drawable, fitted into 24 x 24 dp. */
+function tileGlyph() {
+  const all = GLYPH.flatMap((shape) => trace(shape.d));
+  const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
+  const left = Math.min(...xs), right = Math.max(...xs);
+  const top = Math.min(...ys), bottom = Math.max(...ys);
+  // One unit of margin: the system gives the icon no padding of its own.
+  const scale = 22 / Math.max(right - left, bottom - top);
+  const dx = 12 - ((left + right) / 2) * scale, dy = 12 - ((top + bottom) / 2) * scale;
+  const number = (v) => String(Math.round(v * 100) / 100);
+  const data = (d) => d
+    .map(([op, ...p]) => op + p.map((v, i) => number(v * scale + (i % 2 ? dy : dx))).join(','))
+    .join('');
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<!-- Quick settings tile glyph: the cat of the app icon in its hard hat, as a',
+    '     single-colour shape (the system tints it). Written by tool/gen_icons.mjs;',
+    '     change it there. -->',
+    '<vector xmlns:android="http://schemas.android.com/apk/res/android"',
+    '    android:width="24dp"',
+    '    android:height="24dp"',
+    '    android:viewportWidth="24"',
+    '    android:viewportHeight="24">',
+    ...GLYPH.flatMap((shape) => [
+      `    <!-- ${shape.name}. -->`,
+      '    <path',
+      '        android:fillColor="#FFFFFFFF"',
+      ...(shape.holes ? ['        android:fillType="evenOdd"'] : []),
+      `        android:pathData="${data(shape.d)}" />`,
+    ]),
+    '</vector>',
+    '',
+  ].join('\n');
+}
+
+write('android/app/src/main/res/drawable/ic_tile.xml', tileGlyph());
