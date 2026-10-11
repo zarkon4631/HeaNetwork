@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/app.dart';
 import 'package:heanetwork/core/config/config_builder.dart';
+import 'package:heanetwork/core/models/panel_routing.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/services/app_catalog.dart';
 import 'package:heanetwork/core/services/clash_api.dart';
@@ -312,15 +313,12 @@ void main() {
           ..locale = 'ru'
           ..themeMode = 'dark';
         await pumpApp(tester, state, size: size, tab: ShellTab.settings);
-        expect(find.textContaining('Защита от блокировок'), findsOneWidget);
+        // The censorship-resistance block is gone from the page; the
+        // protection itself stays on its automatic preset.
+        expect(find.textContaining('Защита от блокировок'), findsNothing);
+        expect(state.settings.antiDpi.preset, AntiDpiPreset.balanced);
+        expect(find.text('Подключение'), findsOneWidget);
         await shoot(tester, '${label}_settings');
-
-        await tester.tap(find.text('Вручную'));
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(state.settings.antiDpi.preset, AntiDpiPreset.custom);
-        // "Custom" starts from what the previous preset was doing.
-        expect(state.settings.antiDpi.tlsRecordFragment, isTrue);
-        expect(state.settings.antiDpi.tlsFragment, isFalse);
 
         // The device id that goes to the panel is shown to the user.
         await tester.dragUntilVisible(find.text('Отправлять HWID в панель'),
@@ -356,6 +354,81 @@ void main() {
 
   group('windows only', () {
     final variant = TargetPlatformVariant.only(TargetPlatform.windows);
+
+    testWidgets('a program group unfolds into its processes; panel rules are shown',
+        (tester) async {
+      final state = makeState();
+      state.settings
+        ..locale = 'ru'
+        ..themeMode = 'dark';
+      state.routing.apps.insert(
+          0,
+          AppRule(
+              name: 'Steam',
+              processName: 'steam.exe',
+              action: RouteAction.direct,
+              processes: List.of(steamGroup.others)));
+      state.routing.imported = PanelRouting.fromProfile({
+        'Name': 'RU напрямую',
+        'GlobalProxy': 'true',
+        'DirectSites': ['geosite:category-ru', 'domain:yandex.net'],
+        'DirectIp': ['geoip:ru'],
+        'BlockSites': ['geosite:category-ads-all'],
+      });
+      await pumpApp(tester, state, size: desktop, tab: ShellTab.routing);
+      expect(find.text('RU напрямую'), findsOneWidget);
+      expect(find.textContaining('Напрямую: 3 · Через VPN: 0 · Блок: 1'), findsOneWidget);
+      expect(find.textContaining('из ссылки'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Steam'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('9 процессов'), findsOneWidget);
+      expect(find.text('steamwebhelper.exe'), findsNothing);
+      await tester.tap(find.text('Steam'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(state.routing.apps.first.expanded, isTrue);
+      expect(find.text('steamwebhelper.exe'), findsOneWidget);
+      expect(state.pendingRestart, isFalse, reason: 'unfolding is only a view');
+      await shoot(tester, 'desktop_routing_groups');
+      await tester.tap(find.text('Steam'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('steamwebhelper.exe'), findsNothing);
+
+      // Switching the panel rules off is one tap.
+      await tester.ensureVisible(find.text('RU напрямую'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('RU напрямую'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(state.routing.usePanelRouting, isFalse);
+      expect(state.panelRouting, isNull);
+    }, variant: variant);
+
+    testWidgets('the log follows the chosen detail at once', (tester) async {
+      final state = makeState();
+      state.settings.locale = 'ru';
+      (state.core as FakeCore)
+        ..log('+0700 2026-10-11 10:00:00 DEBUG dns: lookup example.com')
+        ..log('+0700 2026-10-11 10:00:01 INFO inbound: connection from app')
+        ..log('+0700 2026-10-11 10:00:02 ERROR outbound: i/o timeout');
+      await pumpApp(tester, state, size: desktop, home: const LogsPage());
+      // "Normal" hides the debug line that the core did write.
+      expect(find.textContaining('dns: lookup'), findsNothing);
+      expect(find.textContaining('connection from app'), findsOneWidget);
+
+      await tester.tap(find.text('обычный'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('только ошибки').last);
+      await tester.pumpAndSettle();
+      expect(state.settings.logLevel, 'warn');
+      expect(find.textContaining('connection from app'), findsNothing);
+      expect(find.textContaining('i/o timeout'), findsOneWidget);
+
+      await tester.tap(find.text('только ошибки'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('подробный').last);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('dns: lookup'), findsOneWidget);
+    }, variant: variant);
 
     testWidgets('the mode switch flips between system proxy and VPN', (tester) async {
       final state = makeState();

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/models/settings.dart';
+import '../core/services/clash_api.dart';
 import '../core/services/core_controller.dart';
 import '../l10n/strings.dart';
 import '../platform/windows/elevation.dart';
@@ -85,7 +86,17 @@ class HomePage extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(width: 330, child: SingleChildScrollView(child: panel)),
+              SizedBox(
+                width: 330,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [panel, const SizedBox(height: 10), SessionCard(state: state)],
+                  ),
+                ),
+              ),
               const SizedBox(width: 14),
               const Expanded(
                 child: SingleChildScrollView(
@@ -259,6 +270,203 @@ class ConnectPanel extends StatelessWidget {
     if (dense) return content;
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: content));
   }
+}
+
+/// What fills the column under the connect panel on a wide window: the
+/// speed of the last minute as a graph, and the facts of the connection
+/// that otherwise take a trip through the other pages to find out.
+class SessionCard extends StatelessWidget {
+  const SessionCard({super.key, required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final colors = StatusColors.of(context);
+    final muted = scheme.onSurfaceVariant;
+    final routing = state.routing;
+    final panel = state.panelRouting;
+    final profile = state.selectedProfile;
+    final sub = state.subscriptions
+        .where((x) => x.id == profile?.subscriptionId)
+        .firstOrNull;
+
+    final exceptions = routing.apps.where((a) => a.enabled).length +
+        routing.domains.where((d) => d.enabled).length +
+        (routing.ruDirect ? 1 : 0) +
+        (routing.blockAds ? 1 : 0);
+    final routes = panel != null
+        ? s.routingFromPanel(panel.name)
+        : (routing.defaultAction == RouteAction.proxy
+            ? s.routingSummaryAll
+            : s.routingSummarySelected);
+
+    String? usage;
+    if (sub != null) {
+      final used = (sub.uploadBytes ?? 0) + (sub.downloadBytes ?? 0);
+      final total = sub.totalBytes ?? 0;
+      usage = [
+        if (total > 0) s.usedOf(formatBytes(used), formatBytes(total)) else formatBytes(used),
+        if (sub.expireAt != null) s.expires(formatDate(sub.expireAt!)),
+      ].join(' · ');
+    }
+
+    Widget row(IconData icon, String label, String value) => Padding(
+          padding: const EdgeInsets.only(top: 7),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 15, color: muted),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 92,
+                child: Text(label, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+              ),
+              Expanded(
+                child: Text(value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(s.speedLastMinute,
+                      style: theme.textTheme.labelLarge?.copyWith(color: muted)),
+                ),
+                _Legend(color: colors.connected, icon: Icons.south_rounded),
+                const SizedBox(width: 8),
+                _Legend(color: scheme.primary, icon: Icons.north_rounded),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 64,
+              child: CustomPaint(
+                painter: _SpeedGraphPainter(
+                  samples: List.of(state.speedHistory),
+                  slots: AppState.speedHistoryLength,
+                  down: colors.connected,
+                  up: scheme.primary,
+                  grid: scheme.outlineVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (state.isWindows)
+              row(
+                  Icons.shield_outlined,
+                  s.mode,
+                  state.settings.mode == ConnectionMode.tun
+                      ? s.modeTun
+                      : s.modeProxy),
+            row(
+                Icons.alt_route_rounded,
+                s.navRouting,
+                exceptions == 0 || panel != null
+                    ? routes
+                    : '$routes · ${s.routingExceptions(exceptions)}'),
+            row(Icons.dns_outlined, s.secDns, state.settings.remoteDns),
+            if (usage != null) row(Icons.data_usage_rounded, s.subscription, usage),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend({required this.color, required this.icon});
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Icon(icon, size: 13, color: color);
+}
+
+/// Download and upload speed over the last minute, newest on the right.
+class _SpeedGraphPainter extends CustomPainter {
+  _SpeedGraphPainter({
+    required this.samples,
+    required this.slots,
+    required this.down,
+    required this.up,
+    required this.grid,
+  });
+
+  final List<TrafficSample> samples;
+  final int slots;
+  final Color down;
+  final Color up;
+  final Color grid;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = grid.withValues(alpha: 0.5)
+      ..strokeWidth = 1;
+    for (final f in [0.0, 0.5, 1.0]) {
+      final y = (size.height - 1) * f + 0.5;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
+    }
+    if (samples.length < 2) return;
+    var peak = 1;
+    for (final s in samples) {
+      peak = math.max(peak, math.max(s.down, s.up));
+    }
+    final step = size.width / (slots - 1);
+    final start = size.width - step * (samples.length - 1);
+
+    void series(int Function(TrafficSample) of, Color color, {required bool fill}) {
+      final path = Path();
+      for (var i = 0; i < samples.length; i++) {
+        final x = start + step * i;
+        final y = size.height - 1 - (size.height - 3) * of(samples[i]) / peak;
+        i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+      }
+      if (fill) {
+        final area = Path.from(path)
+          ..lineTo(size.width, size.height)
+          ..lineTo(start, size.height)
+          ..close();
+        canvas.drawPath(
+            area,
+            Paint()
+              ..shader = LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0)],
+              ).createShader(Offset.zero & size));
+      }
+      canvas.drawPath(
+          path,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6
+            ..strokeJoin = StrokeJoin.round
+            ..color = color);
+    }
+
+    series((s) => s.down, down, fill: true);
+    series((s) => s.up, up, fill: false);
+  }
+
+  @override
+  bool shouldRepaint(_SpeedGraphPainter old) => true;
 }
 
 class _Speed extends StatelessWidget {

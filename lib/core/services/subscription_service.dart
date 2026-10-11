@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/panel_routing.dart';
 import '../models/profile.dart';
 import '../parsers/import_parser.dart';
 import '../parsers/link_utils.dart';
@@ -38,8 +39,13 @@ class SubscriptionResult {
     this.supportUrl,
     this.webPageUrl,
     this.announce,
+    this.routing,
     this.skipped = 0,
   });
+
+  /// Routing rules from the `Routing` header (Happ format), if the panel
+  /// sends any.
+  final PanelRouting? routing;
 
   final List<ProxyProfile> profiles;
 
@@ -151,6 +157,7 @@ Future<SubscriptionResult> fetchSubscription(
       supportUrl: _url(h['support-url']),
       webPageUrl: _url(h['profile-web-page-url']),
       announce: decodeHeaderText(h['announce']),
+      routing: PanelRouting.parseLink(h['routing']),
       skipped: parsed.errors.length,
     );
   } finally {

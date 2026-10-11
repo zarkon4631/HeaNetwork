@@ -58,7 +58,6 @@ class SettingsPage extends StatelessWidget {
       appBar: AppBar(title: Text(s.navSettings)),
       body: PageBody(
         children: [
-          _AntiDpiSection(state: state),
           Section(
             title: s.secConnection,
             children: [
@@ -228,7 +227,12 @@ class SettingsPage extends StatelessWidget {
                 title: Text(s.sendHwid),
                 subtitle: Text(state.device == null
                     ? s.sendHwidHint
-                    : '${s.sendHwidHint}\n${s.deviceId(state.device!.hwid)}'),
+                    : [
+                        s.sendHwidHint,
+                        s.deviceId(state.device!.hwid),
+                        if (state.device!.model.isNotEmpty)
+                          s.deviceModel(state.device!.model),
+                      ].join('\n')),
                 isThreeLine: state.device != null,
                 value: st.sendHwid,
                 onChanged: (v) =>
@@ -282,127 +286,6 @@ class SettingsPage extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _AntiDpiSection extends StatelessWidget {
-  const _AntiDpiSection({required this.state});
-  final AppState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = S.of(context);
-    final theme = Theme.of(context);
-    final a = state.settings.antiDpi;
-    final custom = a.preset == AntiDpiPreset.custom;
-
-    void change(void Function(AntiDpiSettings a) f) =>
-        state.updateSettings((x) => f(x.antiDpi));
-
-    final hint = switch (a.preset) {
-      AntiDpiPreset.off => s.presetOffHint,
-      AntiDpiPreset.balanced => s.presetBalancedHint,
-      AntiDpiPreset.strong => s.presetStrongHint,
-      AntiDpiPreset.custom => null,
-    };
-
-    return Section(
-      title: s.secAntiDpi,
-      subtitle: s.antiDpiIntro,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: SizedBox(
-            width: double.infinity,
-            child: SegmentedButton<AntiDpiPreset>(
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment(value: AntiDpiPreset.off, label: Text(s.presetOff)),
-                ButtonSegment(value: AntiDpiPreset.balanced, label: Text(s.presetBalanced)),
-                ButtonSegment(value: AntiDpiPreset.strong, label: Text(s.presetStrong)),
-                ButtonSegment(value: AntiDpiPreset.custom, label: Text(s.presetCustom)),
-              ],
-              selected: {a.preset},
-              onSelectionChanged: (v) => change((x) {
-                // Entering "custom" starts from what the preset was doing.
-                if (v.first == AntiDpiPreset.custom) {
-                  final e = x.effective;
-                  x
-                    ..tlsFragment = e.tlsFragment
-                    ..tlsRecordFragment = e.tlsRecordFragment
-                    ..utlsFingerprint = e.utlsFingerprint
-                    ..directFragment = e.directFragment;
-                }
-                x.preset = v.first;
-              }),
-            ),
-          ),
-        ),
-        if (hint != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-            child: Text(hint,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.verified_user_outlined,
-                  size: 15, color: theme.colorScheme.tertiary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(s.profileWins,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-              ),
-            ],
-          ),
-        ),
-        if (custom) ...[
-          SwitchListTile(
-            title: Text(s.tlsRecordFragment),
-            value: a.tlsRecordFragment,
-            onChanged: (v) => change((x) => x.tlsRecordFragment = v),
-          ),
-          SwitchListTile(
-            title: Text(s.tlsFragment),
-            subtitle: Text(s.tlsFragmentHint),
-            value: a.tlsFragment,
-            onChanged: (v) => change((x) => x.tlsFragment = v),
-          ),
-          SwitchListTile(
-            title: Text(s.directFragment),
-            subtitle: Text(s.directFragmentHint),
-            value: a.directFragment,
-            onChanged: (v) => change((x) => x.directFragment = v),
-          ),
-          ListTile(
-            title: Text(s.fingerprint),
-            trailing: DropdownButton<String>(
-              value: a.utlsFingerprint,
-              underline: const SizedBox.shrink(),
-              items: [
-                DropdownMenuItem(value: '', child: Text(s.fingerprintKeep)),
-                for (final f in utlsFingerprints)
-                  DropdownMenuItem(value: f, child: Text(f)),
-              ],
-              onChanged: (v) => change((x) => x.utlsFingerprint = v!),
-            ),
-          ),
-          if (state.isWindows)
-            _TextSetting(
-              title: s.spoofSni,
-              value: a.spoofSni,
-              hint: s.spoofSniHint,
-              placeholder: s.presetOff,
-              onChanged: (v) => change((x) => x.spoofSni = v),
-            ),
-        ],
-      ],
     );
   }
 }
@@ -753,34 +636,17 @@ class _DnsSetting extends StatelessWidget {
   }
 }
 
-/// A setting edited as free text in a dialog.
-class _TextSetting extends StatelessWidget {
-  const _TextSetting({
-    required this.title,
-    required this.value,
-    required this.onChanged,
-    this.hint,
-    this.placeholder,
-  });
+final _logLevelOf = RegExp(r'\b(TRACE|DEBUG|INFO|NOTICE|WARN|ERROR|FATAL|PANIC)\b');
 
-  final String title;
-  final String value;
-  final String? hint;
-  final String? placeholder;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(title),
-      subtitle: Text(value.isEmpty ? (placeholder ?? '—') : value),
-      trailing: const Icon(Icons.edit_outlined, size: 18),
-      onTap: () async {
-        final v = await promptText(context, title: title, initial: value, hint: hint);
-        if (v != null) onChanged(v);
-      },
-    );
-  }
+/// Whether a line of core output belongs in the log at detail [level]
+/// (`warn`, `info` or `debug`). Lines without a level, such as the app's
+/// own notes, always do.
+bool logLineVisible(String line, String level) {
+  final found = _logLevelOf.firstMatch(line)?.group(1);
+  if (found == null || level == 'debug') return true;
+  const quiet = {'WARN', 'ERROR', 'FATAL', 'PANIC'};
+  if (level == 'warn') return quiet.contains(found);
+  return found != 'DEBUG' && found != 'TRACE';
 }
 
 class LogsPage extends StatefulWidget {
@@ -801,13 +667,31 @@ class _LogsPageState extends State<LogsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<AppState>();
+    // Watched, not read: changing the level must redraw the list at once.
+    final state = context.watch<AppState>();
     final s = S.of(context);
     final theme = Theme.of(context);
+    final level = state.settings.logLevel;
     return Scaffold(
       appBar: AppBar(
         title: Text(s.logs),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Tooltip(
+              message: s.logLevelNote,
+              child: DropdownButton<String>(
+                value: level,
+                underline: const SizedBox.shrink(),
+                items: [
+                  DropdownMenuItem(value: 'warn', child: Text(s.logLevelWarn)),
+                  DropdownMenuItem(value: 'info', child: Text(s.logLevelInfo)),
+                  DropdownMenuItem(value: 'debug', child: Text(s.logLevelDebug)),
+                ],
+                onChanged: (v) => state.updateSettings((x) => x.logLevel = v!),
+              ),
+            ),
+          ),
           // The log of this run and of the one before it is also kept on
           // disk, where it outlives the app.
           if (state.coreLogDirectory != null)
@@ -820,7 +704,8 @@ class _LogsPageState extends State<LogsPage> {
             tooltip: s.copy,
             icon: const Icon(Icons.copy_rounded),
             onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: state.core.logs.join('\n')));
+              await Clipboard.setData(ClipboardData(
+                  text: state.core.logs.where((l) => logLineVisible(l, level)).join('\n')));
               if (context.mounted) showSnack(context, s.copied);
             },
           ),
@@ -834,7 +719,11 @@ class _LogsPageState extends State<LogsPage> {
       body: StreamBuilder<String>(
         stream: state.core.logStream,
         builder: (context, _) {
-          final logs = state.core.logs;
+          // The level is a filter on what is shown as well as a setting of
+          // the core, so choosing "errors only" empties the list right away
+          // instead of some time after the next connection.
+          final logs =
+              state.core.logs.where((l) => logLineVisible(l, level)).toList();
           if (logs.isEmpty) {
             return Center(
                 child: Text(s.logsEmpty,

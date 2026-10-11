@@ -1,3 +1,4 @@
+import 'panel_routing.dart';
 import 'profile.dart';
 
 enum ConnectionMode {
@@ -8,7 +9,7 @@ enum ConnectionMode {
   tun;
 
   static ConnectionMode parse(String? v) =>
-      values.firstWhere((e) => e.name == v, orElse: () => systemProxy);
+      values.firstWhere((e) => e.name == v, orElse: () => tun);
 }
 
 enum RouteAction {
@@ -91,8 +92,10 @@ class AntiDpiSettings {
       };
 
   factory AntiDpiSettings.fromJson(Map<String, dynamic> j) => AntiDpiSettings(
+        // The settings page no longer offers a choice, so a stored "off"
+        // could never be undone: it becomes the automatic preset again.
         preset: AntiDpiPreset.values.firstWhere(
-          (e) => e.name == j['preset'],
+          (e) => e.name == j['preset'] && e != AntiDpiPreset.off,
           orElse: () => AntiDpiPreset.balanced,
         ),
         tlsFragment: j['tlsFragment'] as bool? ?? false,
@@ -217,7 +220,7 @@ class AppSettings {
   AppSettings({
     this.locale = 'system',
     this.themeMode = 'system',
-    this.mode = ConnectionMode.systemProxy,
+    this.mode = ConnectionMode.tun,
     this.mixedPort = 2080,
     this.allowLan = false,
     this.tunStack = 'mixed',
@@ -370,7 +373,10 @@ class AppRule {
     this.packageName,
     this.action = RouteAction.direct,
     this.enabled = true,
-  }) : id = id ?? newId();
+    List<String>? processes,
+    this.expanded = false,
+  })  : id = id ?? newId(),
+        processes = processes ?? [];
 
   final String id;
   String name;
@@ -388,6 +394,23 @@ class AppRule {
   RouteAction action;
   bool enabled;
 
+  /// Further executables that belong to the same program (its helpers and
+  /// services) and follow the same rule, e.g. `steamwebhelper.exe` for
+  /// Steam. Empty for a rule about a single executable.
+  List<String> processes;
+
+  /// The list of [processes] is unfolded in the routing page.
+  bool expanded;
+
+  bool get isGroup => processes.isNotEmpty;
+
+  /// Every executable name the rule covers, the main one first.
+  List<String> get processNames => [
+        if (processName?.isNotEmpty ?? false) processName!,
+        for (final p in processes)
+          if (p.toLowerCase() != processName?.toLowerCase()) p,
+      ];
+
   /// Stable identity used to avoid adding the same app twice.
   String get matchKey =>
       packageName ??
@@ -404,6 +427,8 @@ class AppRule {
         if (packageName != null) 'packageName': packageName,
         'action': action.name,
         'enabled': enabled,
+        if (processes.isNotEmpty) 'processes': processes,
+        if (expanded) 'expanded': true,
       };
 
   factory AppRule.fromJson(Map<String, dynamic> j) => AppRule(
@@ -415,7 +440,61 @@ class AppRule {
         packageName: j['packageName'] as String?,
         action: RouteAction.parse(j['action'] as String?, RouteAction.direct),
         enabled: j['enabled'] as bool? ?? true,
+        processes: [for (final p in j['processes'] as List? ?? const []) '$p'],
+        expanded: j['expanded'] as bool? ?? false,
       );
+}
+
+/// A program that runs as several executables, so that one choice in the
+/// routing page covers all of them.
+class AppGroup {
+  const AppGroup(this.name, this.main, this.others, {this.defaultPath});
+  final String name;
+
+  /// The executable the user thinks of as the program.
+  final String main;
+  final List<String> others;
+
+  /// Where the program usually lives, for its icon.
+  final String? defaultPath;
+
+  List<String> get all => [main, ...others];
+}
+
+const steamGroup = AppGroup(
+  'Steam',
+  'steam.exe',
+  [
+    'steamwebhelper.exe',
+    'steamservice.exe',
+    'GameOverlayUI.exe',
+    'GameOverlayUI64.exe',
+    'steamerrorreporter.exe',
+    'steamerrorreporter64.exe',
+    'steamsysinfo.exe',
+    'streaming_client.exe',
+  ],
+  defaultPath: r'C:\Program Files (x86)\Steam\steam.exe',
+);
+
+const knownAppGroups = [
+  steamGroup,
+  AppGroup('Epic Games', 'EpicGamesLauncher.exe',
+      ['EpicWebHelper.exe', 'EpicOnlineServicesHost.exe', 'EpicOnlineServicesUserHelper.exe']),
+  AppGroup('Battle.net', 'Battle.net.exe', ['Battle.net Helper.exe', 'Battle.net Launcher.exe']),
+  AppGroup('Discord', 'Discord.exe', ['DiscordHookHelper.exe', 'DiscordHookHelper64.exe']),
+  AppGroup('Google Chrome', 'chrome.exe', ['chrome_proxy.exe']),
+  AppGroup('Microsoft Edge', 'msedge.exe', ['msedgewebview2.exe', 'msedge_proxy.exe']),
+];
+
+/// The group [processName] belongs to, whichever of its executables it is.
+AppGroup? appGroupOf(String? processName) {
+  final name = processName?.toLowerCase();
+  if (name == null) return null;
+  for (final g in knownAppGroups) {
+    if (g.all.any((p) => p.toLowerCase() == name)) return g;
+  }
+  return null;
 }
 
 enum DomainRuleKind {
@@ -492,8 +571,14 @@ class RoutingSettings {
     List<DomainRule>? domains,
     this.ruDirect = false,
     this.blockAds = false,
+    this.usePanelRouting = true,
+    this.imported,
+    this.seed = 0,
   })  : apps = apps ?? [],
         domains = domains ?? [];
+
+  /// The newest set of built-in rules; see [seedDefaults].
+  static const currentSeed = 1;
 
   /// Where traffic goes when no rule matches: [RouteAction.proxy] sends
   /// everything through the VPN, [RouteAction.direct] only what rules select.
@@ -505,12 +590,79 @@ class RoutingSettings {
   bool ruDirect;
   bool blockAds;
 
+  /// Apply the routing profile the subscription server sends (or one that
+  /// was imported from a link) on top of the rules above.
+  bool usePanelRouting;
+
+  /// A routing profile added by hand from a `happ://routing/...` link. A
+  /// profile that comes with the active subscription takes precedence.
+  PanelRouting? imported;
+
+  /// Which built-in rules were already added, so each is offered once and a
+  /// rule the user deleted does not come back.
+  int seed;
+
+  /// Makes [rule]'s program a group when it is a known multi-process one,
+  /// folding rules for its other executables into it.
+  void adoptGroup(AppRule rule) {
+    final group = appGroupOf(rule.processName);
+    if (group == null || rule.matchByPath) return;
+    final names = {for (final p in group.all) p.toLowerCase()};
+    apps.removeWhere((a) =>
+        !identical(a, rule) &&
+        a.packageName == null &&
+        !a.matchByPath &&
+        names.contains(a.processName?.toLowerCase()));
+    if (rule.processName?.toLowerCase() != group.main.toLowerCase()) {
+      // The icon path pointed at a helper; the group has no path of its own.
+      rule.processPath = null;
+    }
+    rule
+      ..name = group.name
+      ..processName = group.main
+      ..processes = List.of(group.others);
+  }
+
+  /// Adds the rules a fresh install starts with (Windows): Steam goes
+  /// directly, since downloading games through a VPN is slow and pointless.
+  /// Existing rules for the same program are kept and turned into the group.
+  /// Returns true when something changed.
+  bool seedDefaults({required bool windows, bool Function(String path)? exists}) {
+    if (seed >= currentSeed) return false;
+    seed = currentSeed;
+    if (!windows) return true;
+    final names = {for (final p in steamGroup.all) p.toLowerCase()};
+    final existing = apps
+        .where((a) => !a.matchByPath && names.contains(a.processName?.toLowerCase()))
+        .toList();
+    if (existing.isNotEmpty) {
+      adoptGroup(existing.firstWhere(
+          (a) => a.processName?.toLowerCase() == steamGroup.main,
+          orElse: () => existing.first));
+      return true;
+    }
+    final path = steamGroup.defaultPath;
+    apps.insert(
+        0,
+        AppRule(
+          name: steamGroup.name,
+          processName: steamGroup.main,
+          processPath: path != null && (exists?.call(path) ?? false) ? path : null,
+          action: RouteAction.direct,
+          processes: List.of(steamGroup.others),
+        ));
+    return true;
+  }
+
   Map<String, dynamic> toJson() => {
         'defaultAction': defaultAction.name,
         'apps': apps.map((e) => e.toJson()).toList(),
         'domains': domains.map((e) => e.toJson()).toList(),
         'ruDirect': ruDirect,
         'blockAds': blockAds,
+        'usePanelRouting': usePanelRouting,
+        if (imported != null) 'imported': imported!.toJson(),
+        'seed': seed,
       };
 
   factory RoutingSettings.fromJson(Map<String, dynamic> j) => RoutingSettings(
@@ -523,5 +675,10 @@ class RoutingSettings {
             .toList(),
         ruDirect: j['ruDirect'] as bool? ?? false,
         blockAds: j['blockAds'] as bool? ?? false,
+        usePanelRouting: j['usePanelRouting'] as bool? ?? true,
+        imported: j['imported'] is Map
+            ? PanelRouting.fromProfile(Map<String, dynamic>.from(j['imported'] as Map))
+            : null,
+        seed: (j['seed'] as num?)?.toInt() ?? 0,
       );
 }

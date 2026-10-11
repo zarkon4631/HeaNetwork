@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/models/panel_routing.dart';
 import '../core/models/settings.dart';
 import '../core/services/app_catalog.dart';
 import '../l10n/strings.dart';
@@ -35,12 +37,41 @@ class RoutingPage extends StatelessWidget {
         // A new rule is an exception, so it starts as the opposite of the default.
         action: proxyDefault ? RouteAction.direct : RouteAction.proxy,
       );
-      if (routing.apps.any((a) => a.matchKey == rule.matchKey)) {
+      final exe = rule.processName?.toLowerCase();
+      final known = routing.apps.any((a) =>
+          a.matchKey == rule.matchKey ||
+          // One of the helpers of a program that is already here as a group.
+          (exe != null && a.processNames.any((p) => p.toLowerCase() == exe)));
+      if (known) {
         if (context.mounted) showSnack(context, s.appAlreadyAdded);
         return;
       }
-      state.updateRouting((r) => r.apps.add(rule));
+      state.updateRouting((r) {
+        r.apps.add(rule);
+        // Steam and the like run as several executables: take them all.
+        r.adoptGroup(rule);
+      });
     }
+
+    Future<void> pasteRouting() async {
+      final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim() ?? '';
+      if (!context.mounted) return;
+      if (!PanelRouting.isLink(text)) {
+        showSnack(context, s.panelRoutingBadLink);
+        return;
+      }
+      final outcome = await state.importText(text);
+      if (!context.mounted) return;
+      final imported = outcome.routing;
+      showSnack(
+          context,
+          imported == null
+              ? s.panelRoutingBadLink
+              : (imported.isEmpty ? s.panelRoutingRemoved : s.panelRoutingImported));
+    }
+
+    final panel = state.availablePanelRouting;
+    final missing = state.missingPanelRuleSets.length;
 
     Future<void> addSite() async {
       final text = await promptText(context,
@@ -74,6 +105,65 @@ class RoutingPage extends StatelessWidget {
                 onTap: () =>
                     state.updateRouting((r) => r.defaultAction = RouteAction.direct),
               ),
+            ],
+          ),
+          Section(
+            title: s.panelRouting,
+            subtitle: s.panelRoutingHint,
+            trailing: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Tooltip(
+                message: 'happ://routing/…',
+                child: FilledButton.tonalIcon(
+                  onPressed: pasteRouting,
+                  icon: const Icon(Icons.content_paste_rounded, size: 18),
+                  label: Text(s.panelRoutingPaste),
+                ),
+              ),
+            ),
+            children: [
+              if (panel == null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Text(s.panelRoutingNone,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                )
+              else ...[
+                SwitchListTile(
+                  secondary: const Icon(Icons.cloud_sync_outlined),
+                  title: Text(panel.name.isEmpty ? s.panelRoutingUse : panel.name),
+                  subtitle: Text([
+                    state.panelRoutingFromSubscription
+                        ? s.panelRoutingFromSub
+                        : s.panelRoutingFromLink,
+                    s.panelRoutingCounts(panel.countOf(RouteAction.direct),
+                        panel.countOf(RouteAction.proxy), panel.countOf(RouteAction.block)),
+                    s.panelRoutingDefault(panel.globalProxy),
+                  ].join(' · ')),
+                  value: routing.usePanelRouting,
+                  onChanged: state.setUsePanelRouting,
+                ),
+                if (missing > 0 && routing.usePanelRouting)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Text(s.panelRoutingMissing(missing),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.tertiary)),
+                  ),
+                if (!state.panelRoutingFromSubscription)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                      child: TextButton.icon(
+                        onPressed: state.removeImportedRouting,
+                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                        label: Text(s.delete),
+                      ),
+                    ),
+                  ),
+              ],
             ],
           ),
           Section(
@@ -226,7 +316,15 @@ class _RuleRow extends StatelessWidget {
     required this.onAction,
     required this.onDelete,
     this.onLongPress,
+    this.onTap,
+    this.expanded,
   });
+
+  /// Folds and unfolds what the row stands for; null for a plain row.
+  final VoidCallback? onTap;
+
+  /// Whether the row is unfolded; null hides the arrow.
+  final bool? expanded;
 
   final Widget leading;
   final String title;
@@ -242,6 +340,16 @@ class _RuleRow extends StatelessWidget {
     final s = S.of(context);
     final identity = Row(
       children: [
+        if (expanded != null)
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: AnimatedRotation(
+              turns: expanded! ? 0 : -0.25,
+              duration: const Duration(milliseconds: 160),
+              child: Icon(Icons.expand_more_rounded,
+                  size: 20, color: scheme.onSurfaceVariant),
+            ),
+          ),
         leading,
         const SizedBox(width: 12),
         Expanded(
@@ -268,9 +376,10 @@ class _RuleRow extends StatelessWidget {
     );
 
     return InkWell(
+      onTap: onTap,
       onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+        padding: EdgeInsets.fromLTRB(expanded == null ? 16 : 10, 8, 4, 8),
         child: LayoutBuilder(builder: (context, c) {
           final narrow = c.maxWidth < 640;
           final selector = ActionSelector(
@@ -345,14 +454,45 @@ class _AppRuleTile extends StatelessWidget {
       if (exact != null) state.updateRouting((_) => rule.matchByPath = exact);
     }
 
-    return _RuleRow(
+    final names = rule.processNames;
+    final row = _RuleRow(
       leading: AppIconView(processPath: rule.processPath, packageName: rule.packageName),
       title: rule.name,
-      subtitle: target,
+      subtitle: rule.isGroup ? '$target · ${s.processCount(names.length)}' : target,
       action: rule.action,
       onAction: (a) => state.updateRouting((_) => rule.action = a),
       onDelete: () => state.updateRouting((r) => r.apps.remove(rule)),
-      onLongPress: rule.processPath == null ? null : options,
+      onLongPress: rule.processPath == null || rule.isGroup ? null : options,
+      // A group unfolds into the executables it covers.
+      expanded: rule.isGroup ? rule.expanded : null,
+      onTap: rule.isGroup ? () => state.toggleAppExpanded(rule) : null,
+    );
+    if (!rule.isGroup || !rule.expanded) return row;
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        row,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(78, 0, 16, 10),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final name in names)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(name,
+                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

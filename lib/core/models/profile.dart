@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'panel_routing.dart';
+
 /// Protocols the client can connect with. `amneziawg` is a WireGuard endpoint
 /// carrying an `amnezia` block; it is kept separate so the UI can label it.
 abstract final class Protocol {
@@ -174,12 +176,16 @@ class Subscription {
     this.webPageUrl,
     this.announce,
     this.collapsed = false,
+    this.routing,
   }) : id = id ?? newId();
 
   final String id;
   String name;
   String url;
   DateTime? updatedAt;
+
+  /// Routing rules the panel sends with the subscription (`Routing` header).
+  PanelRouting? routing;
 
   /// Folded in the list: only the header shows, the servers are hidden.
   bool collapsed;
@@ -221,6 +227,7 @@ class Subscription {
         if (webPageUrl != null) 'webPageUrl': webPageUrl,
         if (announce != null) 'announce': announce,
         if (collapsed) 'collapsed': true,
+        if (routing != null) 'routing': routing!.toJson(),
       };
 
   factory Subscription.fromJson(Map<String, dynamic> j) => Subscription(
@@ -237,5 +244,8 @@ class Subscription {
         webPageUrl: j['webPageUrl'] as String?,
         announce: j['announce'] as String?,
         collapsed: j['collapsed'] as bool? ?? false,
+        routing: j['routing'] is Map
+            ? PanelRouting.fromProfile(Map<String, dynamic>.from(j['routing'] as Map))
+            : null,
       );
 }

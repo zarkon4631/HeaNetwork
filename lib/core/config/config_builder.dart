@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../models/panel_routing.dart';
 import '../models/profile.dart';
 import '../models/settings.dart';
 
@@ -174,9 +175,12 @@ Map<String, dynamic> appConditions(List<AppRule> apps, CorePlatform platform) {
   for (final a in apps) {
     if (a.matchByPath && (a.processPath?.isNotEmpty ?? false)) {
       paths.add(a.processPath!);
-    } else if (a.processName?.isNotEmpty ?? false) {
+    } else {
       // Windows file names are case-insensitive; the core compares exactly.
-      regexes.add('(?i)(^|[\\\\/])${RegExp.escape(a.processName!)}\$');
+      // A group rule covers every executable of its program.
+      for (final name in a.processNames) {
+        regexes.add('(?i)(^|[\\\\/])${RegExp.escape(name)}\$');
+      }
     }
   }
   return {
@@ -206,11 +210,14 @@ Map<String, dynamic> buildConfig({
   required RoutingSettings routing,
   required BuildEnv env,
   Iterable<String> serverDomains = const [],
+  PanelRouting? panel,
 }) {
   final isAndroid = env.platform == CorePlatform.android;
   final tun = isAndroid || settings.mode == ConnectionMode.tun;
   final antiDpi = settings.antiDpi.effective;
-  final proxyDefault = routing.defaultAction == RouteAction.proxy;
+  // A profile from the panel also says where unmatched traffic goes.
+  final proxyDefault =
+      panel?.globalProxy ?? (routing.defaultAction == RouteAction.proxy);
 
   // ---- outbounds / endpoints -------------------------------------------
   final outbounds = <Map<String, dynamic>>[];
@@ -348,13 +355,27 @@ Map<String, dynamic> buildConfig({
   }
 
   final ruleSets = <Map<String, dynamic>>[];
+  final usedRuleSets = <String>{};
   bool have(String tag) => env.ruleSets?.contains(tag) ?? true;
-  void useRuleSet(String tag) => ruleSets.add({
-        'type': 'local',
-        'tag': tag,
-        'format': 'binary',
-        'path': '${env.ruleSetDir}/$tag.srs',
-      });
+  void useRuleSet(String tag) {
+    if (!usedRuleSets.add(tag)) return;
+    ruleSets.add({
+      'type': 'local',
+      'tag': tag,
+      'format': 'binary',
+      'path': '${env.ruleSetDir}/$tag.srs',
+    });
+  }
+
+  // The panel's rules come after the user's own, which therefore win.
+  if (panel != null) {
+    for (final action in panel.order) {
+      final cond = panel.conditions(action, available: have);
+      if (cond.isEmpty) continue;
+      (cond['rule_set'] as List<String>? ?? const []).forEach(useRuleSet);
+      rules.add({...cond, ...routeTo(action)});
+    }
+  }
 
   final blockAds = routing.blockAds && have(ruleSetAds);
   if (blockAds) {
@@ -400,6 +421,18 @@ Map<String, dynamic> buildConfig({
       domainsOnly: true);
   if (directDomains.isNotEmpty) {
     dnsRules.add({...directDomains, 'action': 'route', 'server': tagDnsDirect});
+  }
+  if (panel != null) {
+    final blocked =
+        panel.conditions(RouteAction.block, available: have, domainsOnly: true);
+    if (blocked.isNotEmpty) dnsRules.add({...blocked, 'action': 'reject'});
+    // Names that go out directly are also resolved directly, so a local
+    // service gets the address meant for local visitors.
+    final direct =
+        panel.conditions(RouteAction.direct, available: have, domainsOnly: true);
+    if (direct.isNotEmpty) {
+      dnsRules.add({...direct, 'action': 'route', 'server': tagDnsDirect});
+    }
   }
   if (routing.ruDirect) {
     dnsRules.add({

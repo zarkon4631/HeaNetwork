@@ -458,6 +458,7 @@ void main() {
     final config = buildConfig(
       profile: profile,
       settings: AppSettings(
+        mode: ConnectionMode.systemProxy,
         mixedPort: mixedPort,
         antiDpi: AntiDpiSettings(preset: preset),
         logLevel: 'debug',
@@ -529,7 +530,8 @@ void main() {
     final mixedPort = await freeTcp();
     final config = buildConfig(
       profile: profile,
-      settings: AppSettings(mixedPort: mixedPort, logLevel: 'debug'),
+      settings: AppSettings(
+          mode: ConnectionMode.systemProxy, mixedPort: mixedPort, logLevel: 'debug'),
       routing: RoutingSettings(),
       env: BuildEnv(
         platform: CorePlatform.windows,

@@ -403,6 +403,45 @@ class S {
   String get sent => _t('Отправлено', 'Sent');
   String get sendFailed => _t('Не удалось отправить', 'Could not send');
 
+  // ---- session card, panel routing, app groups (1.0.6)
+  String get speedLastMinute => _t('Скорость за минуту', 'Speed, last minute');
+  String get subscription => _t('Подписка', 'Subscription');
+  String routingFromPanel(String name) => _t(
+      name.isEmpty ? 'Правила из панели' : 'Из панели: $name',
+      name.isEmpty ? 'Rules from the panel' : 'From the panel: $name');
+  String get panelRouting => _t('Маршрутизация из панели', 'Routing from the panel');
+  String get panelRoutingHint => _t(
+      'Правила, которые администратор задал в 3x-ui (формат Happ). Приходят вместе с подпиской и обновляются с ней. Ваши правила ниже имеют приоритет.',
+      'Rules the administrator set in 3x-ui (Happ format). They arrive with the subscription and update with it. Your own rules below take priority.');
+  String get panelRoutingNone => _t(
+      'Подписка не прислала правил. Ссылку вида happ://routing/… можно вставить кнопкой справа.',
+      'The subscription sent no rules. A happ://routing/… link can be pasted with the button on the right.');
+  String get panelRoutingUse => _t('Применять правила из панели', 'Apply the panel rules');
+  String get panelRoutingFromSub => _t('из подписки', 'from the subscription');
+  String get panelRoutingFromLink => _t('из ссылки', 'from a link');
+  String panelRoutingCounts(int direct, int proxy, int block) => _t(
+      'Напрямую: $direct · Через VPN: $proxy · Блок: $block',
+      'Direct: $direct · Via VPN: $proxy · Block: $block');
+  String panelRoutingDefault(bool proxy) => _t(
+      proxy ? 'Остальное — через VPN' : 'Остальное — напрямую',
+      proxy ? 'Everything else through the VPN' : 'Everything else directly');
+  String panelRoutingMissing(int n) => _t(
+      'Списки ещё загружаются: $n. До загрузки эти правила не действуют.',
+      'Lists still downloading: $n. Until then those rules do not apply.');
+  String get panelRoutingImported =>
+      _t('Маршрутизация из ссылки добавлена', 'Routing from the link was added');
+  String get panelRoutingRemoved => _t('Маршрутизация из ссылки убрана', 'Routing from the link was removed');
+  String get panelRoutingPaste => _t('Вставить ссылку', 'Paste a link');
+  String get panelRoutingBadLink => _t(
+      'В буфере нет ссылки happ://routing/…', 'The clipboard holds no happ://routing/… link');
+  String processCount(int n) => _t(
+      '$n ${_plural(n, 'процесс', 'процесса', 'процессов')}',
+      '$n ${n == 1 ? 'process' : 'processes'}');
+  String get logLevelNote => _t(
+      'Показ меняется сразу. Более подробные строки ядро начнёт писать после переподключения.',
+      'The view changes at once. The core starts writing more detailed lines after a reconnect.');
+  String deviceModel(String model) => _t('Устройство: $model', 'Device: $model');
+
   // ---- tray
   String get trayShow => _t('Открыть HeaNetwork', 'Open HeaNetwork');
   String get trayConnect => _t('Подключить', 'Connect');

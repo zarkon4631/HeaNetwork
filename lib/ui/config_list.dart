@@ -37,6 +37,11 @@ void _reportImport(BuildContext context, ImportOutcome outcome) {
     showSnack(context, describeSubscriptionError(s, outcome.failure!));
     return;
   }
+  final routing = outcome.routing;
+  if (routing != null) {
+    showSnack(context, routing.isEmpty ? s.panelRoutingRemoved : s.panelRoutingImported);
+    return;
+  }
   if (outcome.added == 0) {
     showSnack(
         context,
@@ -664,7 +669,7 @@ class _SelectableRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 2, 6),
+          padding: const EdgeInsets.fromLTRB(10, 3, 0, 3),
           child: Row(
             children: [
               Icon(
@@ -699,9 +704,23 @@ class _SelectableRow extends StatelessWidget {
         ),
       ),
     );
+    // Each row is its own rounded tile with a gap around it, so the flag
+    // behind one server does not run into the flag of the next.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: _rowBody(scheme, row),
+      ),
+    );
+  }
+
+  Widget _rowBody(ColorScheme scheme, Widget row) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
-      color: selected ? scheme.primary.withValues(alpha: 0.14) : Colors.transparent,
+      color: selected
+          ? scheme.primary.withValues(alpha: 0.16)
+          : scheme.onSurface.withValues(alpha: 0.03),
       child: backdrop == null
           ? row
           : Stack(
@@ -740,6 +759,12 @@ class _ServerTile extends StatelessWidget {
           LatencyBadge(profile.latencyMs, testing: state.testingLatency),
           PopupMenuButton<String>(
             iconSize: 20,
+            // The default 48 px button is what made every row tall.
+            padding: EdgeInsets.zero,
+            style: const ButtonStyle(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
             onSelected: (v) async {
               switch (v) {
                 case 'test':

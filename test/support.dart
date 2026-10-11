@@ -131,6 +131,9 @@ AppState makeState({
   final store = AppStore(Directory('${dir.path}/data'));
   // A moving background never settles, which pumpAndSettle waits for.
   store.settings.animations = false;
+  // The app's default is VPN mode, which on Windows needs administrator
+  // rights; tests that are about that mode ask for it themselves.
+  store.settings.mode = ConnectionMode.systemProxy;
 
   if (populated) {
     final sub = Subscription(

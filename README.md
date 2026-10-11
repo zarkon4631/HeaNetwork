@@ -1,284 +1,88 @@
-<p align="center"><img src="docs/icon.png" width="112" alt="HeaNetwork"></p>
+<p align="center"><img src="docs/icon.png" width="104" alt="HeaNetwork"></p>
+<h1 align="center">HeaNetwork</h1>
+<p align="center">VPN-клиент для панели <b>3x-ui</b> с маршрутизацией по приложениям и защитой от блокировок</p>
 
-# HeaNetwork
+<p align="center">
+  <a href="https://github.com/zarkon4631/HeaNetwork/releases/latest"><img src="https://img.shields.io/github/v/release/zarkon4631/HeaNetwork?label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=2f6bff" alt="Версия"></a>
+  <a href="https://github.com/zarkon4631/HeaNetwork/releases"><img src="https://img.shields.io/github/downloads/zarkon4631/HeaNetwork/total?label=%D0%B7%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D0%BA%D0%B8&color=22c55e" alt="Загрузки"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0"></a>
+  <br>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Android-7.0+-3DDC84?logo=android&logoColor=white" alt="Android">
+  <img src="https://img.shields.io/badge/Android%20TV-%E2%9C%93-3DDC84?logo=androidtv&logoColor=white" alt="Android TV">
+  <br>
+  <img src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white" alt="Flutter">
+  <img src="https://img.shields.io/badge/Dart-3.13-0175C2?logo=dart&logoColor=white" alt="Dart">
+  <img src="https://img.shields.io/badge/Kotlin-Android-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin">
+  <img src="https://img.shields.io/badge/core-sing--box-1f2937" alt="sing-box">
+</p>
 
-VPN-клиент для **Windows**, **Android** и **Android TV** с понятным интерфейсом,
-маршрутизацией по приложениям и защитой от блокировок. Работает со всеми
-подключениями панели **3x-ui** и не только.
-
-[English summary](#english) · [Скачать](https://github.com/zarkon4631/HeaNetwork/releases/latest)
+<p align="center"><a href="https://github.com/zarkon4631/HeaNetwork/releases/latest"><b>Скачать</b></a> · <a href="CHANGELOG.md">Что нового</a> · <a href="#english">English</a></p>
 
 | | |
 |---|---|
-| ![Главный экран](docs/screenshots/desktop_home_on.png) | ![Светлая тема](docs/screenshots/desktop_home_on_light.png) |
-| ![Маршрутизация по приложениям](docs/screenshots/desktop_routing.png) | ![Android TV](docs/screenshots/tv_home_on.png) |
-
-<p align="center">
-  <img src="docs/screenshots/phone_home_on.png" width="250" alt="Android">
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/desktop_compact.png" width="320" alt="Компактный вид">
-</p>
+| ![Главный экран](docs/screenshots/desktop_home_on.png) | ![Маршруты](docs/screenshots/desktop_routing_groups.png) |
 
 ## Возможности
 
-- **Протоколы**: VLESS, VMess, Trojan, Shadowsocks (включая 2022), WireGuard,
-  AmneziaWG (1.x–3.x), Hysteria, Hysteria 2, TUIC, SOCKS, HTTP.
-- **Транспорты и маскировка**: Reality, XHTTP, WebSocket, gRPC, HTTPUpgrade,
-  mKCP, VLESS encryption, XTLS Vision, obfs у Hysteria 2.
-- **Режимы**: системный прокси (без прав администратора) и VPN/TUN (весь трафик),
-  переключаются слайдером слева снизу. Локальный порт `mixed` доступен всегда.
-- **Главный экран**: кнопка подключения со скоростью рядом, трафик за сеанс,
-  обновление подписок, пинг всех серверов одной кнопкой и сам список конфигураций.
-  Подписки и «Мои серверы» сворачиваются нажатием на заголовок; свёрнутая группа
-  продолжает показывать выбранный в ней сервер.
-- **Пинг по TCP**: время соединения с самим сервером, замер идёт мимо VPN-туннеля,
-  даже если тот включён. В настройках можно выбрать замер «через сервер» —
-  задержку настоящего запроса; для WireGuard, Hysteria и TUIC он используется
-  всегда, потому что TCP они не принимают.
-- **Маршрутизация по приложениям**: для каждой программы один переключатель —
-  *Напрямую*, *Через VPN* или *Блок*. На Windows программа выбирается из списка
-  запущенных с иконками, на Android — из установленных приложений. Приложение,
-  отправленное «напрямую» на Android, вообще не видит VPN, поэтому банковские
-  приложения работают как обычно.
-- **Маршрутизация по сайтам**: «Российские сайты напрямую», блокировка рекламы,
-  свои правила по домену, слову или IP-диапазону.
-- **Защита от блокировок (DPI / ТСПУ)** одним переключателем: *Выкл / Авто /
-  Усиленная / Вручную*. Подробнее — [ниже](#защита-от-блокировок).
-- **Подписки 3x-ui**: обычные и JSON, остаток трафика и срок, объявления и ссылка
-  поддержки из панели, автообновление с интервалом, который задаёт панель.
-  Подробнее — [ниже](#подписки-3x-ui-и-hwid).
-- **HWID и IP-адрес**: приложение сообщает панели идентификатор устройства,
-  чтобы работал лимит устройств на подписку, и внешний IP-адрес устройства —
-  для статистики.
-- **Флаги стран**: код страны в названии сервера (`NL`, `RU`, `DE-2`, `USA`
-  или эмодзи-флаг) превращается во флаг — значок рядом с названием и фон
-  строки. Флаги приложение рисует само, поэтому они есть и на Windows.
-- **Android TV**: интерфейс под пульт и телевизионный экран; подписку удобно
-  [прислать с телефона по QR-коду](#android-tv).
-- **Виджет Android**: подключение и переключение серверов с главного экрана.
-- **Кнопка в шторке Android**: подключение одним нажатием из панели быстрых
-  настроек (свайп сверху). Добавляется в настройках приложения или через
-  «Изменить» в самой шторке.
-- **Компактный вид** (Windows): маленькое окно поверх остальных — только кнопка
-  и скорость.
-- **Импорт**: буфер обмена, QR-код, файл `.conf` / `.json`, подписка, ключ `vpn://`.
-- **Обновления** из GitHub Releases с проверкой SHA-256 перед установкой.
-- **DNS** выбирается из списка: Google, Cloudflare, Quad9, AdGuard, варианты с
-  шифрованием (DoH) или свой адрес. По умолчанию — 8.8.8.8 через VPN.
-- Тёмная и светлая темы с анимированным фоном, kill switch, защита от утечек
-  DNS и IPv6, FakeIP, проброс портов, трей и автозапуск, русский и английский.
+- **Протоколы**: VLESS, VMess, Trojan, Shadowsocks, WireGuard, AmneziaWG, Hysteria 1/2, TUIC, SOCKS, HTTP; Reality, XHTTP, WebSocket, gRPC, HTTPUpgrade, mKCP.
+- **Подписки 3x-ui**: обычные и JSON, остаток трафика и срок, объявления, HWID для лимита устройств, ключи `vpn://`.
+- **Маршрутизация из панели**: правила в формате Happ, которые администратор задал в 3x-ui, приходят вместе с подпиской.
+- **Маршрутизация по приложениям**: *Напрямую / Через VPN / Блок* для каждой программы. Steam, Epic, Discord и другие добавляются сразу со всеми своими процессами.
+- **Маршрутизация по сайтам**: российские сайты напрямую, блокировка рекламы, свои правила.
+- **Защита от блокировок (DPI / ТСПУ)** включена всегда: разбиение TLS-записей и отпечаток браузера, плюс всё, что задано в самом сервере.
+- **Режимы**: VPN (весь трафик, по умолчанию) и системный прокси.
+- **Android**: виджет, кнопка в шторке, интерфейс для Android TV и приём подписки с телефона по QR-коду.
+- **Ещё**: пинг по TCP, флаги стран, график скорости, выбор DNS, обновления с проверкой SHA-256, тёмная и светлая темы, русский и английский.
 
 ## Установка
 
-Скачайте файл со [страницы релизов](https://github.com/zarkon4631/HeaNetwork/releases/latest):
-
-| Платформа | Файл |
+| Платформа | Файл со [страницы релизов](https://github.com/zarkon4631/HeaNetwork/releases/latest) |
 |---|---|
-| Windows 10/11 x64 | `HeaNetwork-…-windows-x64-setup.exe` — установщик без прав администратора |
-| Windows, без установки | `HeaNetwork-…-windows-x64-portable.zip` |
-| Android 7.0+ и Android TV | `HeaNetwork-…-android-arm64-v8a.apk` (почти все устройства), `…-armeabi-v7a.apk` (старые ТВ-приставки) или `…-universal.apk` |
+| Windows 10/11 x64 | `…-windows-x64-setup.exe` или `…-portable.zip` |
+| Android 7.0+ и Android TV | `…-android-arm64-v8a.apk`, для старых приставок `…-armeabi-v7a.apk` |
 
-Установщик Windows не подписан сертификатом, поэтому SmartScreen покажет
-предупреждение: «Подробнее» → «Выполнить в любом случае». Контрольные суммы
-всех файлов лежат в `SHA256SUMS.txt` рядом с релизом.
+Установщик Windows не подписан сертификатом: в окне SmartScreen нажмите «Подробнее» → «Выполнить в любом случае». Контрольные суммы лежат в `SHA256SUMS.txt`.
 
-## Быстрый старт
+**Быстрый старт:** скопируйте ссылку подписки в панели 3x-ui → в приложении **+** → **Вставить из буфера** → кнопка подключения. В режиме VPN Windows при запуске попросит права администратора.
 
-1. В панели 3x-ui скопируйте ссылку подключения (или ссылку подписки).
-2. В HeaNetwork нажмите **+** → **Вставить из буфера**.
-3. Нажмите кнопку подключения.
+## Частые вопросы
 
-На Windows по умолчанию включён режим «Системный прокси». Чтобы через VPN шёл
-трафик всех программ, включая игры, переведите слайдер слева снизу в положение
-VPN — приложение предложит перезапуститься с правами администратора. Пока выбран
-режим VPN, оно просит эти права при каждом запуске (окно контроля учётных
-записей Windows); значок щита у слайдера показывает, что права получены.
+<details><summary>Не подключается</summary>
 
-Подключение, которое ещё устанавливается, можно отменить той же кнопкой или
-ссылкой «Отменить подключение» рядом с ней.
+Откройте **Настройки → Журнал**. На Windows журнал текущего и прошлого сеансов также лежит в файлах `core.log` и `core.prev.log` — кнопка с папкой на странице журнала.
+</details>
 
-При закрытии окна приложение спрашивает: отменить, закрыть полностью или
-свернуть в трей. Ответ можно запомнить и поменять потом в настройках.
+<details><summary>Программа не видит VPN в режиме «Системный прокси»</summary>
 
-### Если не подключается
+В этом режиме через VPN идут только программы, которые читают настройки прокси Windows. Игры и консольные программы (git, npm, Claude Code) идут напрямую. Включите режим **VPN** слайдером слева снизу.
+</details>
 
-Откройте **Настройки → Журнал**. На Windows журнал текущего и предыдущего
-сеансов также лежит в файлах `core.log` и `core.prev.log` — кнопка с папкой на
-странице журнала открывает их расположение. Эти файлы и стоит прикладывать к
-сообщению об ошибке.
+<details><summary>Как раздать правила маршрутизации всем пользователям</summary>
 
-### Программа не видит VPN или пишет об ошибке входа
+В 3x-ui: настройки подписки → маршрутизация Happ. Приложение читает заголовок `Routing` при каждом обновлении подписки; списки `geosite:` и `geoip:` загружает само. Ссылку `happ://routing/…` можно также вставить вручную на странице «Маршруты». Собственные правила пользователя имеют приоритет.
+</details>
 
-В режиме «Системный прокси» через VPN идут только программы, которые сами
-читают настройки прокси Windows: браузеры и большинство обычных приложений.
-Игры и консольные программы — Claude Code, git, npm, pip — этих настроек не
-читают и выходят в сеть напрямую. Сервис при этом видит ваш настоящий адрес и
-может отказать: например, Claude отвечает «Authentication failed», хотя сайт
-в браузере открывается.
+<details><summary>Подписка на телевизор</summary>
 
-Решение — режим **VPN** (слайдер слева снизу): в нём через туннель идёт трафик
-всех программ. Если права администратора недоступны, программе можно указать
-прокси вручную: `HTTPS_PROXY=http://127.0.0.1:2080` (порт — из настроек).
+На телевизоре **+** → **Получить с телефона (QR)**, отсканируйте код телефоном в той же сети Wi-Fi и вставьте ссылку на открывшейся странице.
+</details>
 
-## Android TV
-
-Интерфейс рассчитан на пульт: кнопка подключения сразу в фокусе, по списку
-серверов и меню можно ходить стрелками.
-
-Чтобы не набирать ссылку пультом:
-
-1. На телевизоре: **+** → **Получить с телефона (QR)**.
-2. Подключите телефон к той же сети Wi-Fi и отсканируйте код камерой.
-3. На открывшейся странице вставьте ссылку подписки и нажмите «Отправить».
-
-Если на телефоне тоже установлен HeaNetwork, можно отсканировать код его
-сканером (**+** → **Сканировать QR-код**) — он предложит отправить на телевизор
-все ваши подписки и серверы разом.
-
-## Подписки 3x-ui и HWID
-
-Приложение понимает то, что панель реально отдаёт (проверено по исходникам
-3x-ui 3.9):
-
-- ссылки всех протоколов, включая AmneziaWG в виде `vpn://…` и параметры
-  `fm` (фрагментация), `x_padding_bytes`, `support-x25519mlkem768`, `mport`;
-- JSON-подписку (массив конфигураций Xray);
-- заголовки `Subscription-Userinfo`, `Profile-Title`, `Profile-Update-Interval`,
-  `Announce`, `Support-Url`.
-
-**Параметры из подписки всегда имеют приоритет.** Если сервер сам задаёт
-отпечаток TLS или фрагментацию, приложение их не меняет ни при каком пресете —
-оно только добавляет то, чего в конфигурации нет. Обычное обновление подписки
-не сбрасывает выбранный сервер и не просит переподключиться, если сервер не
-изменился.
-
-**HWID.** При запросе подписки отправляются заголовки `X-HWID`, `X-Device-OS`,
-`X-Ver-OS`, `X-Device-Model` — так панель считает устройства и применяет лимит.
-Идентификатор — хэш от ID устройства, сам ID наружу не уходит; он показан в
-настройках и отправляется только серверу подписки. Если лимит исчерпан,
-приложение прямо об этом скажет. Отправку можно выключить в настройках.
-
-**IP-адрес.** Вместе с HWID уходят заголовки `X-Real-IP` и `X-Forwarded-For`
-с внешним адресом устройства. Сервер подписки обычно видит адрес сам, но не
-тогда, когда стоит за прокси, который адрес не передаёт (в статистике тогда
-`127.0.0.1` или `::1`), и не тогда, когда запрос пришёл через VPN — в этом
-случае он видит адрес VPN-сервера. Поэтому приложение узнаёт свой адрес у
-одного из сервисов (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`,
-`ifconfig.me`), причём мимо туннеля, и раз в несколько минут, а не при каждом
-запросе. Это те же заголовки, что ставит обратный прокси, поэтому серверу
-достаточно читать `X-Forwarded-For` (первый адрес в списке) или `X-Real-IP`.
-Выключается тем же переключателем, что и HWID.
-
-## Защита от блокировок
-
-Эталонные клиенты ([Throne](https://github.com/throneproj/Throne),
-[NekoBox](https://github.com/qr243vbi/nekobox)) защищаются от анализа трафика
-не отдельным «шифрованием», а набором приёмов маскировки. HeaNetwork использует
-те же приёмы и добавляет к ним понятные пресеты.
-
-| Приём | Что делает | Где включается |
-|---|---|---|
-| Reality, XHTTP, VLESS encryption | Соединение неотличимо от обычного HTTPS | в профиле сервера |
-| AmneziaWG | Мусорные пакеты и изменённые заголовки WireGuard | в профиле сервера |
-| Obfs (salamander) у Hysteria 2 | Скрывает QUIC | в профиле сервера |
-| Фрагментация из панели (`fm`) | То, что настроил администратор сервера | в профиле сервера |
-| Разбиение TLS-записей | Имя сервера не попадает в один пакет | пресет «Авто» |
-| Отпечаток браузера (uTLS) | TLS выглядит как Chrome | пресет «Авто» |
-| Дробление TCP-пакетов | Сильнее, но медленнее | пресет «Усиленная» |
-| Обработка прямых соединений | Помогает с замедляемыми сайтами без VPN | пресет «Усиленная» |
-| Подмена SNI | Ложное приветствие с разрешённым доменом | «Вручную», режим администратора |
-
-## Как это устроено
-
-- Интерфейс и логика — **Flutter** (один код для Windows, Android и Android TV).
-- Ядро — [sing-box-extended](https://github.com/shtorm-7/sing-box-extended)
-  (форк [sing-box](https://github.com/SagerNet/sing-box) с XHTTP, AmneziaWG и
-  VLESS encryption), версия зафиксирована в [`tool/core.json`](tool/core.json).
-  На Windows это отдельный процесс, на Android — библиотека внутри `VpnService`.
-- Ссылки и конфигурации разбирает само приложение
-  ([`lib/core/parsers`](lib/core/parsers)), оно же строит конфигурацию ядра
-  ([`lib/core/config`](lib/core/config)).
-
-## Сборка из исходников
+## Сборка
 
 Нужен [Flutter](https://docs.flutter.dev/get-started/install) 3.47+.
 
 ```powershell
-# ядро для Windows и списки маршрутизации (проверяются по SHA-256)
-powershell -ExecutionPolicy Bypass -File tool\fetch_assets.ps1
-
+powershell -ExecutionPolicy Bypass -File tool\fetch_assets.ps1   # ядро и списки, проверяются по SHA-256
 flutter pub get
-flutter test          # включая сквозные тесты через настоящее ядро
-flutter build windows # нужен Visual Studio с «Разработкой классических приложений на C++»
+flutter test
+flutter build windows
 ```
 
-Для Android дополнительно нужны Go, JDK 17 и Android NDK:
+Для Android дополнительно Go, JDK 17 и NDK: `bash tool/build_libbox.sh`, затем `flutter build apk --split-per-abi`. Каждый коммит собирается в [GitHub Actions](.github/workflows/build.yml); тег `v1.2.3` публикует релиз с описанием из [`CHANGELOG.md`](CHANGELOG.md).
 
-```bash
-bash tool/build_libbox.sh   # собирает ядро в android/app/libs/libbox.aar
-flutter build apk --split-per-abi
-```
-
-Каждый коммит собирается в GitHub Actions
-([`.github/workflows/build.yml`](.github/workflows/build.yml)); тег вида
-`v1.2.3` публикует релиз, который и находит встроенное обновление. Описанием
-релиза становится раздел этой версии из [`CHANGELOG.md`](CHANGELOG.md) — его же
-приложение показывает в блоке «Что нового».
-
-### Тесты
-
-- `test/parsers_test.dart`, `test/panel_formats_test.dart` — разбор ссылок,
-  форматов 3x-ui и JSON-подписок.
-- `test/core_check_test.dart` — каждая сгенерированная конфигурация проверяется
-  настоящим ядром (`sing-box check`).
-- `test/e2e_test.dart` — локальный сервер на том же ядре, через каждый протокол
-  реально передаётся трафик.
-- `test/core_process_test.dart` — запуск, остановка и сбои процесса ядра.
-- `test/connect_test.dart` — отмена подключения, запуск от администратора, DNS.
-- `test/latency_test.dart` — пинг по TCP, обход туннеля, замер через сервер.
-- `test/subscription_test.dart` — HWID, IP-адрес, лимит устройств, обновление
-  подписок, приём по QR.
-- `test/public_ip_test.dart` — определение внешнего IP-адреса.
-- `test/flags_test.dart` — страна по названию сервера и флаги.
-- `test/screens_test.dart` — все экраны на размерах компьютера, телефона и
-  телевизора; с `HEA_SCREENSHOTS=1` сохраняет скриншоты в `docs/screenshots`.
-
-Значок собирает скрипт [`tool/gen_icons.mjs`](tool/gen_icons.mjs) из картинки
-[`tool/mascot.png`](tool/mascot.png); баннер для Android TV рисует
-`test/tv_banner_test.dart`.
-
-## Лицензия
-
-[GPL-3.0](LICENSE). Ядро sing-box и его форк распространяются под GPL-3.0.
-Реализация VPN-сервиса Android следует устройству
-[sing-box-for-android](https://github.com/SagerNet/sing-box-for-android).
-
----
+Ядро — [sing-box-extended](https://github.com/shtorm-7/sing-box-extended), версия закреплена в [`tool/core.json`](tool/core.json). Лицензия — [GPL-3.0](LICENSE).
 
 ## English
 
-HeaNetwork is a VPN client for **Windows**, **Android** and **Android TV**
-built around three ideas: an interface a non-expert can use, per-application
-routing, and censorship resistance that is one switch instead of a page of
-options.
-
-- **Protocols**: VLESS, VMess, Trojan, Shadowsocks (incl. 2022), WireGuard,
-  AmneziaWG, Hysteria, Hysteria 2, TUIC, SOCKS, HTTP — every connection type a
-  3x-ui panel offers, with Reality, XHTTP, WebSocket, gRPC, HTTPUpgrade and mKCP.
-- **Per-app routing**: pick an app and choose *Direct*, *Via VPN* or *Block*.
-- **Anti-DPI presets**: TLS record/segment fragmentation, uTLS fingerprints,
-  optional SNI spoofing. Settings carried by a server always win.
-- **3x-ui subscriptions**: plain and JSON, usage and expiry, panel-defined
-  refresh interval, HWID headers for the panel's device limit, and the
-  device's public IP address for the panel's statistics.
-- **Country flags** from the codes in server names (`NL`, `RU`, `DE-2`).
-- **Android TV** with remote-friendly navigation and a QR code to send a
-  subscription from a phone; a home-screen **widget** and a **quick settings
-  tile** on Android; a compact always-on-top window on Windows.
-- **Self-update** from GitHub Releases, verified against SHA-256.
-
-It is a Flutter app driving the
-[sing-box-extended](https://github.com/shtorm-7/sing-box-extended) core.
-Download builds from the
-[releases page](https://github.com/zarkon4631/HeaNetwork/releases/latest).
-Licensed under GPL-3.0.
+HeaNetwork is a VPN client for **Windows**, **Android** and **Android TV**, made for 3x-ui panels: every protocol the panel offers, subscriptions with HWID, routing rules pushed from the panel (Happ format), per-application routing with program groups, always-on anti-DPI measures, TCP ping, self-update verified by SHA-256. Built with Flutter on the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) core. [Download](https://github.com/zarkon4631/HeaNetwork/releases/latest) · GPL-3.0.

@@ -245,11 +245,47 @@ class MainActivity : FlutterActivity() {
         return mapOf(
             "id" to Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID),
             "release" to Build.VERSION.RELEASE,
-            "model" to listOf(Build.MANUFACTURER, Build.MODEL)
-                .filter { !it.isNullOrBlank() }
-                .joinToString(" "),
+            "model" to deviceName(),
             "tv" to tv,
         )
+    }
+
+    /** A system property, or null; these are not part of the public API. */
+    private fun systemProperty(key: String): String? = runCatching {
+        val properties = Class.forName("android.os.SystemProperties")
+        val value = properties.getMethod("get", String::class.java).invoke(null, key) as? String
+        value?.trim()?.takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
+    /**
+     * The name the device is sold under ("Xiaomi 13T Pro", "Galaxy S23 Ultra")
+     * rather than its model code ("23078PND5G", "SM-S918B"). Makers keep it
+     * in their own system properties; failing those, the name shown in the
+     * system settings is the closest thing, and the code is the last resort.
+     */
+    private fun deviceName(): String {
+        val code = Build.MODEL.orEmpty().trim()
+        val market = listOf(
+            "ro.product.marketname",
+            "ro.product.vendor.marketname",
+            "ro.product.odm.marketname",
+            "ro.config.marketing_name",
+            "ro.vendor.oplus.market.name",
+            "ro.oppo.market.name",
+            "ro.vivo.market.name",
+            "ro.product.nickname",
+        ).firstNotNullOfOrNull { systemProperty(it) }
+        val shown = runCatching { Settings.Global.getString(contentResolver, "device_name") }
+            .getOrNull()?.trim()?.takeIf { it.isNotEmpty() && it != code }
+        val name = market ?: shown ?: code
+        val maker = Build.MANUFACTURER.orEmpty().trim()
+            .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        val brand = Build.BRAND.orEmpty().trim()
+        val branded = name.startsWith(maker, ignoreCase = true) ||
+            (brand.isNotEmpty() && name.startsWith(brand, ignoreCase = true)) ||
+            // Samsung's own names already say whose they are.
+            name.startsWith("Galaxy", ignoreCase = true)
+        return if (maker.isEmpty() || branded) name else "$maker $name"
     }
 
     /** Shows the system's VPN consent dialog when it has not been given yet. */

@@ -84,7 +84,7 @@ void main() {
     for (final p in allProfiles()) {
       final c = buildConfig(
         profile: p,
-        settings: AppSettings(),
+        settings: AppSettings(mode: ConnectionMode.systemProxy),
         routing: RoutingSettings(),
         env: env(CorePlatform.windows),
       );

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../core/config/config_builder.dart';
+import '../core/models/panel_routing.dart';
 import '../core/models/profile.dart';
 import '../core/models/settings.dart';
 import '../core/parsers/import_parser.dart';
@@ -52,7 +53,12 @@ class ImportOutcome {
     this.subscription,
     this.errors = const [],
     this.failure,
+    this.routing,
   });
+
+  /// Set when the text was a routing link (`happ://routing/...`): the
+  /// profile that was imported, or an empty one for "routing off".
+  final PanelRouting? routing;
   final int added;
   final Subscription? subscription;
 
@@ -180,6 +186,11 @@ class AppState extends ChangeNotifier {
   /// previous run, and connects if the user asked for that.
   Future<void> init({bool connect = false}) async {
     await _extractRuleSets();
+    if (routing.seedDefaults(
+        windows: isWindows, exists: (path) => File(path).existsSync())) {
+      unawaited(store.saveRouting());
+    }
+    unawaited(_fetchPanelRuleSets());
     final c = core;
     if (c is ProcessCoreController) c.killOrphan();
     // A proxy setting that survived the app points at a dead port.
@@ -226,8 +237,108 @@ class AppState extends ChangeNotifier {
         if (file.existsSync()) available.add(tag);
       }
     }
+    // Lists fetched earlier for a panel's routing profile.
+    try {
+      await for (final e in paths.ruleSets.list()) {
+        final name = e.uri.pathSegments.last;
+        if (e is File && name.endsWith('.srs')) {
+          available.add(name.substring(0, name.length - 4));
+        }
+      }
+    } on FileSystemException {
+      // The bundled ones are enough to start with.
+    }
     _ruleSets = available;
   }
+
+  // ---- routing from the panel ------------------------------------------
+
+  /// The routing profile in force: the one the selected server's
+  /// subscription came with, else one imported from a link; null when the
+  /// user switched this off or there is none.
+  PanelRouting? get panelRouting {
+    if (!routing.usePanelRouting) return null;
+    return availablePanelRouting;
+  }
+
+  /// The same, whether or not it is switched on.
+  PanelRouting? get availablePanelRouting {
+    final subId = selectedProfile?.subscriptionId;
+    final fromSub =
+        subscriptions.where((s) => s.id == subId).firstOrNull?.routing;
+    return fromSub ?? routing.imported;
+  }
+
+  /// True when [availablePanelRouting] came with the subscription rather
+  /// than from a link the user added.
+  bool get panelRoutingFromSubscription {
+    final subId = selectedProfile?.subscriptionId;
+    return subscriptions.where((s) => s.id == subId).firstOrNull?.routing != null;
+  }
+
+  /// Lists a routing profile names that are not on this device yet.
+  Set<String> get missingPanelRuleSets =>
+      (availablePanelRouting?.ruleSetTags ?? const <String>{}).difference(_ruleSets);
+
+  bool _fetchingRuleSets = false;
+
+  /// Downloads the site and address lists the routing profiles refer to.
+  /// A list that cannot be fetched is simply not applied until it can.
+  Future<void> _fetchPanelRuleSets() async {
+    if (_fetchingRuleSets) return;
+    final wanted = <String>{
+      for (final s in subscriptions) ...?s.routing?.ruleSetTags,
+      ...?routing.imported?.ruleSetTags,
+    }.difference(_ruleSets);
+    if (wanted.isEmpty) return;
+    _fetchingRuleSets = true;
+    final client = httpClient ?? http.Client();
+    var added = false;
+    try {
+      await paths.ruleSets.create(recursive: true);
+      for (final tag in wanted) {
+        try {
+          final res = await client
+              .get(Uri.parse(PanelRouting.ruleSetUrl(tag)))
+              .timeout(const Duration(seconds: 30));
+          // Binary rule-sets start with the magic "SRS".
+          final b = res.bodyBytes;
+          if (res.statusCode != 200 || b.length < 4 || b.length > 32 << 20) continue;
+          if (b[0] != 0x53 || b[1] != 0x52 || b[2] != 0x53) continue;
+          final file = File('${paths.ruleSets.path}${Platform.pathSeparator}$tag.srs');
+          await file.writeAsBytes(b, flush: true);
+          _ruleSets = {..._ruleSets, tag};
+          added = true;
+        } on Object {
+          // Tried again at the next start or subscription refresh.
+        }
+      }
+    } on Object {
+      // No folder, no lists.
+    } finally {
+      if (httpClient == null) client.close();
+      _fetchingRuleSets = false;
+    }
+    if (added) {
+      if (status != CoreStatus.stopped && panelRouting != null) pendingRestart = true;
+      configRevision++;
+      notifyListeners();
+    }
+  }
+
+  /// Unfolds or folds the list of executables of a group rule. Only how the
+  /// page looks: nothing about the connection changes.
+  void toggleAppExpanded(AppRule rule) {
+    rule.expanded = !rule.expanded;
+    unawaited(store.saveRouting());
+    notifyListeners();
+  }
+
+  void setUsePanelRouting(bool value) =>
+      updateRouting((r) => r.usePanelRouting = value);
+
+  /// Forgets a routing profile that was imported from a link.
+  void removeImportedRouting() => updateRouting((r) => r.imported = null);
 
   // ---- connect / disconnect --------------------------------------------
 
@@ -248,6 +359,7 @@ class AppState extends ChangeNotifier {
         profile: profile,
         settings: settings,
         routing: routing,
+        panel: panelRouting,
         serverDomains: {
           for (final p in profiles)
             if (InternetAddress.tryParse(p.server) == null) p.server,
@@ -404,15 +516,24 @@ class AppState extends ChangeNotifier {
     connectedSince = DateTime.now();
     totalUp = totalDown = 0;
     speed = const TrafficSample(0, 0);
+    speedHistory.clear();
     _trafficSub = _clash!.traffic().listen((s) {
       speed = s;
       totalUp += s.up;
       totalDown += s.down;
+      speedHistory.add(s);
+      if (speedHistory.length > speedHistoryLength) speedHistory.removeAt(0);
       notifyListeners();
     }, onError: (_) {}, cancelOnError: true);
   }
 
+  /// One sample per second of the current session, newest last, for the
+  /// speed graph.
+  final List<TrafficSample> speedHistory = [];
+  static const speedHistoryLength = 60;
+
   void _stopStats() {
+    speedHistory.clear();
     _trafficSub?.cancel();
     _trafficSub = null;
     _clash?.close();
@@ -520,6 +641,18 @@ class AppState extends ChangeNotifier {
   /// Imports whatever [text] holds: links, a config file, or a
   /// subscription URL (which is fetched right away).
   Future<ImportOutcome> importText(String text) async {
+    if (PanelRouting.isLink(text)) {
+      final profile = PanelRouting.parseLink(text);
+      if (profile == null && !text.trim().startsWith('happ://routing/off')) {
+        return ImportOutcome(errors: const ['routing link']);
+      }
+      updateRouting((r) {
+        r.imported = profile;
+        if (profile != null) r.usePanelRouting = true;
+      });
+      unawaited(_fetchPanelRuleSets());
+      return ImportOutcome(routing: profile ?? PanelRouting());
+    }
     final parsed = parseImportText(text);
     if (parsed.subscriptionUrl != null) {
       try {
@@ -677,6 +810,21 @@ class AppState extends ChangeNotifier {
       ..supportUrl = result.supportUrl
       ..webPageUrl = result.webPageUrl
       ..announce = result.announce;
+
+    // The panel's routing rules travel with the subscription: no header
+    // means the administrator took them away.
+    final routingBefore = jsonEncode(sub.routing?.toJson());
+    sub.routing = result.routing;
+    final routingChanged = jsonEncode(sub.routing?.toJson()) != routingBefore;
+    if (routingChanged) {
+      configRevision++;
+      if (status != CoreStatus.stopped &&
+          routing.usePanelRouting &&
+          activeBefore?.subscriptionId == sub.id) {
+        pendingRestart = true;
+      }
+    }
+    unawaited(_fetchPanelRuleSets());
 
     // Only bother the user about reconnecting when the server in use
     // actually changed; a routine refresh must not nag.

@@ -173,7 +173,7 @@ void main() {
     File('${tmp.path}/settings.json').writeAsStringSync('{ not json');
     final broken = AppStore(tmp);
     await broken.load();
-    expect(broken.settings.mode, ConnectionMode.systemProxy, reason: 'defaults');
+    expect(broken.settings.mode, ConnectionMode.tun, reason: 'defaults');
     expect(File('${tmp.path}/settings.json.corrupt').existsSync(), isTrue);
   });
 
