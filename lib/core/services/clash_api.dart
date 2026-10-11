@@ -68,6 +68,31 @@ class ClashApi {
     }
   }
 
+  /// The connections open right now: id, the outbounds each one goes
+  /// through, and the bytes it has carried so far. Null when the core does
+  /// not answer.
+  Future<List<({String id, List<String> chains, int up, int down})>?>
+      connections() async {
+    try {
+      final res =
+          await _send('GET', _uri('/connections')).timeout(const Duration(seconds: 3));
+      final body = await res.transform(utf8.decoder).join();
+      if (res.statusCode != 200) return null;
+      final list = (jsonDecode(body) as Map)['connections'] as List? ?? const [];
+      return [
+        for (final c in list.whereType<Map>())
+          (
+            id: '${c['id']}',
+            chains: [for (final x in c['chains'] as List? ?? const []) '$x'],
+            up: (c['upload'] as num?)?.toInt() ?? 0,
+            down: (c['download'] as num?)?.toInt() ?? 0,
+          ),
+      ];
+    } on Object {
+      return null;
+    }
+  }
+
   /// Round-trip time of an HTTP request through outbound [tag], in ms.
   /// Returns -1 when the outbound cannot reach [url].
   Future<int> delay(String tag,

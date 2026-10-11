@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/models/settings.dart';
-import '../core/services/clash_api.dart';
 import '../core/services/core_controller.dart';
 import '../l10n/strings.dart';
 import '../platform/windows/elevation.dart';
@@ -284,7 +283,6 @@ class SessionCard extends StatelessWidget {
     final s = S.of(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final colors = StatusColors.of(context);
     final muted = scheme.onSurfaceVariant;
     final routing = state.routing;
     final panel = state.panelRouting;
@@ -342,31 +340,7 @@ class SessionCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(s.speedLastMinute,
-                      style: theme.textTheme.labelLarge?.copyWith(color: muted)),
-                ),
-                _Legend(color: colors.connected, icon: Icons.south_rounded),
-                const SizedBox(width: 8),
-                _Legend(color: scheme.primary, icon: Icons.north_rounded),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 64,
-              child: CustomPaint(
-                painter: _SpeedGraphPainter(
-                  samples: List.of(state.speedHistory),
-                  slots: AppState.speedHistoryLength,
-                  down: colors.connected,
-                  up: scheme.primary,
-                  grid: scheme.outlineVariant,
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
+            _TrafficSplit(traffic: state.routeTraffic),
             if (state.isWindows)
               row(
                   Icons.shield_outlined,
@@ -389,84 +363,114 @@ class SessionCard extends StatelessWidget {
   }
 }
 
-class _Legend extends StatelessWidget {
-  const _Legend({required this.color, required this.icon});
-  final Color color;
-  final IconData icon;
+/// The session's traffic by where it went: through the VPN or directly.
+class _TrafficSplit extends StatelessWidget {
+  const _TrafficSplit({required this.traffic});
+  final RouteTraffic traffic;
 
   @override
-  Widget build(BuildContext context) => Icon(icon, size: 13, color: color);
-}
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final colors = StatusColors.of(context);
+    final muted = scheme.onSurfaceVariant;
+    final total = traffic.vpn + traffic.direct;
 
-/// Download and upload speed over the last minute, newest on the right.
-class _SpeedGraphPainter extends CustomPainter {
-  _SpeedGraphPainter({
-    required this.samples,
-    required this.slots,
-    required this.down,
-    required this.up,
-    required this.grid,
-  });
+    Widget tile(String label, Color color, int sum, int down, int up) => Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(formatBytes(sum),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+              DefaultTextStyle.merge(
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: muted, fontFeatures: const [FontFeature.tabularFigures()]),
+                child: Row(
+                  children: [
+                    Icon(Icons.south_rounded, size: 11, color: muted),
+                    Flexible(child: Text(' ${formatBytes(down)}  ')),
+                    Icon(Icons.north_rounded, size: 11, color: muted),
+                    Flexible(child: Text(' ${formatBytes(up)}')),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
 
-  final List<TrafficSample> samples;
-  final int slots;
-  final Color down;
-  final Color up;
-  final Color grid;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final line = Paint()
-      ..color = grid.withValues(alpha: 0.5)
-      ..strokeWidth = 1;
-    for (final f in [0.0, 0.5, 1.0]) {
-      final y = (size.height - 1) * f + 0.5;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
-    }
-    if (samples.length < 2) return;
-    var peak = 1;
-    for (final s in samples) {
-      peak = math.max(peak, math.max(s.down, s.up));
-    }
-    final step = size.width / (slots - 1);
-    final start = size.width - step * (samples.length - 1);
-
-    void series(int Function(TrafficSample) of, Color color, {required bool fill}) {
-      final path = Path();
-      for (var i = 0; i < samples.length; i++) {
-        final x = start + step * i;
-        final y = size.height - 1 - (size.height - 3) * of(samples[i]) / peak;
-        i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
-      }
-      if (fill) {
-        final area = Path.from(path)
-          ..lineTo(size.width, size.height)
-          ..lineTo(start, size.height)
-          ..close();
-        canvas.drawPath(
-            area,
-            Paint()
-              ..shader = LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0)],
-              ).createShader(Offset.zero & size));
-      }
-      canvas.drawPath(
-          path,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.6
-            ..strokeJoin = StrokeJoin.round
-            ..color = color);
-    }
-
-    series((s) => s.down, down, fill: true);
-    series((s) => s.up, up, fill: false);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(s.sessionTraffic,
+                  style: theme.textTheme.labelLarge?.copyWith(color: muted)),
+            ),
+            Text(s.openConnections(traffic.open),
+                style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            tile(s.actionVpn, colors.connected, traffic.vpn, traffic.vpnDown, traffic.vpnUp),
+            const SizedBox(width: 12),
+            tile(s.actionDirect, scheme.primary, traffic.direct, traffic.directDown,
+                traffic.directUp),
+          ],
+        ),
+        const SizedBox(height: 10),
+        // The share of each, as one bar.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: SizedBox(
+            height: 6,
+            child: total == 0
+                ? ColoredBox(color: scheme.surfaceContainerHighest)
+                : Row(
+                    children: [
+                      if (traffic.vpn > 0)
+                        Expanded(
+                            flex: (traffic.vpn * 1000 ~/ total).clamp(1, 1000),
+                            child: ColoredBox(color: colors.connected)),
+                      if (traffic.direct > 0)
+                        Expanded(
+                            flex: (traffic.direct * 1000 ~/ total).clamp(1, 1000),
+                            child: ColoredBox(color: scheme.primary)),
+                    ],
+                  ),
+          ),
+        ),
+        const SizedBox(height: 6),
+      ],
+    );
   }
-
-  @override
-  bool shouldRepaint(_SpeedGraphPainter old) => true;
 }
 
 class _Speed extends StatelessWidget {

@@ -404,7 +404,7 @@ class S {
   String get sendFailed => _t('Не удалось отправить', 'Could not send');
 
   // ---- session card, panel routing, app groups (1.0.6)
-  String get speedLastMinute => _t('Скорость за минуту', 'Speed, last minute');
+  String openConnections(int n) => _t('соединений: $n', 'connections: $n');
   String get subscription => _t('Подписка', 'Subscription');
   String routingFromPanel(String name) => _t(
       name.isEmpty ? 'Правила из панели' : 'Из панели: $name',

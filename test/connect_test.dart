@@ -8,6 +8,7 @@ import 'package:heanetwork/core/parsers/import_parser.dart';
 import 'package:heanetwork/core/parsers/misc_links.dart';
 import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/platform/windows/elevation.dart';
+import 'package:heanetwork/state/app_state.dart';
 import 'package:heanetwork/platform/windows/system_proxy.dart';
 
 import 'fixtures.dart';
@@ -89,6 +90,59 @@ void main() {
       await connecting;
       expect(state.error, 'dial tcp: connection refused');
     });
+  });
+
+  group('asking to reconnect', () {
+    test('only a setting that really changed asks for it', () async {
+      final state = makeState();
+      await state.connect();
+      expect(state.pendingRestart, isFalse);
+
+      // Choosing what is already chosen changes nothing.
+      state.updateSettings((s) => s.remoteDns = s.remoteDns);
+      state.updateRouting((r) => r.ruDirect = r.ruDirect);
+      state.selectProfile(state.selectedProfile!.id);
+      state.updateSettings((s) => s.mode = s.mode);
+      expect(state.pendingRestart, isFalse);
+
+      // A real change does, and taking it back withdraws the request.
+      final dns = state.settings.remoteDns;
+      state.updateSettings((s) => s.remoteDns = '9.9.9.9');
+      expect(state.pendingRestart, isTrue);
+      state.updateSettings((s) => s.remoteDns = dns);
+      expect(state.pendingRestart, isFalse);
+
+      state.updateRouting((r) => r.ruDirect = !r.ruDirect);
+      expect(state.pendingRestart, isTrue);
+      await state.reconnect();
+      expect(state.pendingRestart, isFalse);
+
+      // Things the core never sees do not ask either.
+      state.updateSettings((s) => s.themeMode = 'light', affectsCore: false);
+      state.updateSettings((s) => s.pingMode = PingMode.url);
+      expect(state.pendingRestart, isFalse);
+      await state.disconnect();
+    });
+  });
+
+  test('traffic is counted by where it went', () {
+    final seen = <String, (int, int)>{};
+    var t = const RouteTraffic().add([
+      (id: 'a', chains: ['proxy'], up: 100, down: 1000),
+      (id: 'b', chains: ['direct'], up: 10, down: 50),
+    ], seen);
+    expect([t.vpnUp, t.vpnDown, t.directUp, t.directDown, t.open], [100, 1000, 10, 50, 2]);
+
+    // Totals per connection keep growing; only the growth is added. A
+    // connection that closed keeps what it carried.
+    t = t.add([
+      (id: 'a', chains: ['proxy'], up: 150, down: 4000),
+      (id: 'c', chains: ['direct'], up: 5, down: 5),
+    ], seen);
+    expect([t.vpnUp, t.vpnDown, t.directUp, t.directDown, t.open], [150, 4000, 15, 55, 2]);
+    expect(t.vpn, 4150);
+    expect(t.direct, 70);
+    expect(seen.keys, unorderedEquals(['a', 'c']));
   });
 
   group('starting as administrator', () {

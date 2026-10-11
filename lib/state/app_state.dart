@@ -44,6 +44,55 @@ class AppPaths {
   File get coreLog => File('${run.path}${Platform.pathSeparator}core.log');
 }
 
+/// How much of a session's traffic went through the VPN and how much went
+/// out directly, plus how many connections are open now.
+class RouteTraffic {
+  const RouteTraffic({
+    this.vpnUp = 0,
+    this.vpnDown = 0,
+    this.directUp = 0,
+    this.directDown = 0,
+    this.open = 0,
+  });
+
+  final int vpnUp;
+  final int vpnDown;
+  final int directUp;
+  final int directDown;
+  final int open;
+
+  int get vpn => vpnUp + vpnDown;
+  int get direct => directUp + directDown;
+
+  /// Adds what the [connections] carried since they were last [seen], and
+  /// updates [seen]. A connection goes "direct" when its chain ends at the
+  /// direct outbound, otherwise through the VPN.
+  RouteTraffic add(
+    List<({String id, List<String> chains, int up, int down})> connections,
+    Map<String, (int up, int down)> seen,
+  ) {
+    var vu = vpnUp, vd = vpnDown, du = directUp, dd = directDown;
+    final alive = <String>{};
+    for (final c in connections) {
+      alive.add(c.id);
+      final before = seen[c.id] ?? (0, 0);
+      final up = c.up > before.$1 ? c.up - before.$1 : 0;
+      final down = c.down > before.$2 ? c.down - before.$2 : 0;
+      seen[c.id] = (c.up, c.down);
+      if (c.chains.contains('direct')) {
+        du += up;
+        dd += down;
+      } else {
+        vu += up;
+        vd += down;
+      }
+    }
+    seen.removeWhere((id, _) => !alive.contains(id));
+    return RouteTraffic(
+        vpnUp: vu, vpnDown: vd, directUp: du, directDown: dd, open: connections.length);
+  }
+}
+
 /// Thrown by [AppState.connect] when TUN mode needs administrator rights.
 class ElevationRequired implements Exception {}
 
@@ -320,7 +369,7 @@ class AppState extends ChangeNotifier {
       _fetchingRuleSets = false;
     }
     if (added) {
-      if (status != CoreStatus.stopped && panelRouting != null) pendingRestart = true;
+      if (status != CoreStatus.stopped && panelRouting != null) _noteCoreChange();
       configRevision++;
       notifyListeners();
     }
@@ -445,6 +494,7 @@ class AppState extends ChangeNotifier {
       final config = configFor(profile,
           clashPort: clashPort, clashSecret: secret, mixedPort: mixedPort);
       pendingRestart = false;
+      _appliedFingerprint = _coreFingerprint();
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
       _startingHere = true;
       try {
@@ -516,24 +566,46 @@ class AppState extends ChangeNotifier {
     connectedSince = DateTime.now();
     totalUp = totalDown = 0;
     speed = const TrafficSample(0, 0);
-    speedHistory.clear();
+    routeTraffic = const RouteTraffic();
+    _seenConnections.clear();
     _trafficSub = _clash!.traffic().listen((s) {
       speed = s;
       totalUp += s.up;
       totalDown += s.down;
-      speedHistory.add(s);
-      if (speedHistory.length > speedHistoryLength) speedHistory.removeAt(0);
       notifyListeners();
     }, onError: (_) {}, cancelOnError: true);
+    _routeTimer?.cancel();
+    _routeTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _pollRouteTraffic());
   }
 
-  /// One sample per second of the current session, newest last, for the
-  /// speed graph.
-  final List<TrafficSample> speedHistory = [];
-  static const speedHistoryLength = 60;
+  /// Traffic of this session split by where it went.
+  RouteTraffic routeTraffic = const RouteTraffic();
+  Timer? _routeTimer;
+  bool _pollingRoutes = false;
+
+  // Bytes already counted per open connection: the core reports running
+  // totals for each, so only the growth since the last look is added.
+  final Map<String, (int up, int down)> _seenConnections = {};
+
+  Future<void> _pollRouteTraffic() async {
+    final clash = _clash;
+    if (clash == null || _pollingRoutes) return;
+    _pollingRoutes = true;
+    try {
+      final list = await clash.connections();
+      if (list == null || !identical(clash, _clash)) return;
+      routeTraffic = routeTraffic.add(list, _seenConnections);
+      notifyListeners();
+    } finally {
+      _pollingRoutes = false;
+    }
+  }
 
   void _stopStats() {
-    speedHistory.clear();
+    _routeTimer?.cancel();
+    _routeTimer = null;
+    _seenConnections.clear();
     _trafficSub?.cancel();
     _trafficSub = null;
     _clash?.close();
@@ -584,8 +656,28 @@ class AppState extends ChangeNotifier {
 
   // ---- settings ---------------------------------------------------------
 
+  /// What the running core was started with, as [_coreFingerprint].
+  String? _appliedFingerprint;
+
+  /// Everything that goes into the core's configuration, as one string.
+  String? _coreFingerprint() {
+    final profile = selectedProfile;
+    if (profile == null) return null;
+    return jsonEncode(configFor(profile,
+        clashPort: 0, clashSecret: '', mixedPort: settings.mixedPort));
+  }
+
+  /// Called after something that may matter to the running core. A
+  /// reconnect is asked for only when the configuration really differs
+  /// from the one in use: choosing the value that is already set, or
+  /// changing a setting and changing it back, asks for nothing.
+  void _noteCoreChange() {
+    final applied = _appliedFingerprint;
+    pendingRestart = applied == null || _coreFingerprint() != applied;
+  }
+
   void _settingsChanged({required bool affectsCore}) {
-    if (affectsCore && status != CoreStatus.stopped) pendingRestart = true;
+    if (affectsCore && status != CoreStatus.stopped) _noteCoreChange();
     configRevision++;
     unawaited(store.saveSettings());
     notifyListeners();
@@ -601,7 +693,7 @@ class AppState extends ChangeNotifier {
 
   void updateRouting(void Function(RoutingSettings r) change) {
     change(routing);
-    if (status != CoreStatus.stopped) pendingRestart = true;
+    if (status != CoreStatus.stopped) _noteCoreChange();
     configRevision++;
     unawaited(store.saveRouting());
     notifyListeners();
@@ -681,7 +773,7 @@ class AppState extends ChangeNotifier {
 
   void replaceOutbound(ProxyProfile p, Map<String, dynamic> outbound) {
     p.outbound = outbound;
-    if (status != CoreStatus.stopped) pendingRestart = true;
+    if (status != CoreStatus.stopped) _noteCoreChange();
     _profilesChanged();
   }
 
@@ -821,7 +913,7 @@ class AppState extends ChangeNotifier {
       if (status != CoreStatus.stopped &&
           routing.usePanelRouting &&
           activeBefore?.subscriptionId == sub.id) {
-        pendingRestart = true;
+        _noteCoreChange();
       }
     }
     unawaited(_fetchPanelRuleSets());
@@ -832,7 +924,7 @@ class AppState extends ChangeNotifier {
       final activeAfter = selectedProfile;
       final changed = activeBefore?.subscriptionId == sub.id &&
           (activeAfter == null || _fingerprint(activeAfter) != activeFingerprint);
-      if (changed) pendingRestart = true;
+      if (changed) _noteCoreChange();
     }
   }
 
