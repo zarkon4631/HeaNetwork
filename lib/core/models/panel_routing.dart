@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../config/rule_values.dart';
 import '../parsers/link_utils.dart';
 import 'settings.dart';
 
@@ -197,11 +198,13 @@ class PanelRouting {
       } else if (kind == 'keyword') {
         add('domain_keyword', value);
       } else if (kind == 'regexp') {
-        add('domain_regex', value);
+        // One expression the core cannot compile would stop it altogether.
+        if (isCoreRegex(value)) add('domain_regex', value);
       } else if (kind.startsWith('ext')) {
         continue; // Refers to a file only the Xray core can read.
       } else if (_ip.hasMatch(entry)) {
-        if (!domainsOnly) add('ip_cidr', entry);
+        // Meant as an address: taken if it is one, left out if it is not.
+        if (!domainsOnly && isCoreAddress(entry)) add('ip_cidr', entry);
       } else if (entry.contains('.') && !entry.contains(' ')) {
         add('domain_suffix', entry);
       } else {

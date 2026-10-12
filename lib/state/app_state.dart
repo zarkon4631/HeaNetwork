@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../core/config/config_builder.dart';
+import '../core/config/rule_values.dart';
 import '../core/models/panel_routing.dart';
 import '../core/models/profile.dart';
 import '../core/models/settings.dart';
@@ -192,6 +193,10 @@ class AppState extends ChangeNotifier {
 
   /// Shown on the home screen until the next connection attempt.
   String? error;
+
+  /// Why this connection was made without the site rules and the panel's
+  /// routing, in the core's words; null while they are in force.
+  String? routingProblem;
 
   /// Settings changed while connected; a reconnect applies them.
   bool pendingRestart = false;
@@ -398,17 +403,24 @@ class AppState extends ChangeNotifier {
 
   /// The core configuration for connecting through [profile] with the
   /// current settings and routing.
+  ///
+  /// With [plainRouting] the site rules, the panel's profile and every list
+  /// of sites are left out. What remains cannot be malformed, so the core
+  /// starts on it whatever state the rules are in.
   Map<String, dynamic> configFor(
     ProxyProfile profile, {
     required int clashPort,
     required String clashSecret,
     int? mixedPort,
+    bool plainRouting = false,
   }) =>
       buildConfig(
         profile: profile,
         settings: settings,
-        routing: routing,
-        panel: panelRouting,
+        routing: plainRouting
+            ? (RoutingSettings.fromJson(routing.toJson())..domains = [])
+            : routing,
+        panel: plainRouting ? null : panelRouting,
         serverDomains: {
           for (final p in profiles)
             if (InternetAddress.tryParse(p.server) == null) p.server,
@@ -422,7 +434,7 @@ class AppState extends ChangeNotifier {
           elevated: elevated,
           corePath: paths.corePath,
           mixedPort: mixedPort,
-          ruleSets: _ruleSets,
+          ruleSets: plainRouting ? const {} : _ruleSets,
           logFile: isAndroid ? paths.coreLog.path : null,
         ),
       );
@@ -498,7 +510,27 @@ class AppState extends ChangeNotifier {
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
       _startingHere = true;
       try {
-        await core.start(config);
+        try {
+          await core.start(config);
+          routingProblem = null;
+        } on CoreException catch (e) {
+          if (!isRoutingComplaint(e.message)) rethrow;
+          // The core will not start on these rules. A connection without
+          // them beats no connection at all: go on with what cannot be
+          // malformed, and say so.
+          routingProblem = e.message;
+          if (e.message.contains('rule-set')) unawaited(_renewRuleSets());
+          try {
+            await core.start(configFor(profile,
+                clashPort: clashPort,
+                clashSecret: secret,
+                mixedPort: mixedPort,
+                plainRouting: true));
+          } on Object {
+            routingProblem = null;
+            rethrow;
+          }
+        }
       } finally {
         _startingHere = false;
       }
@@ -527,8 +559,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Throws away the lists of sites on disk and gets them again, after the
+  /// core could not read one of them.
+  Future<void> _renewRuleSets() async {
+    try {
+      await for (final e in paths.ruleSets.list()) {
+        if (e is File && e.path.endsWith('.srs')) await e.delete();
+      }
+    } on FileSystemException {
+      // What stays is found out again by the next start.
+    }
+    await _extractRuleSets();
+    await _fetchPanelRuleSets();
+  }
+
   /// Disconnects, or calls off a connection that is still being set up.
   Future<void> disconnect() async {
+    routingProblem = null;
     _stopStats();
     systemProxy?.restore();
     await core.stop();

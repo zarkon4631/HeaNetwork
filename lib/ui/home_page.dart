@@ -74,6 +74,7 @@ class HomePage extends StatelessWidget {
         children: [
           ConnectPanel(state: state),
           if (state.error != null) _ErrorCard(state: state),
+          if (state.routingProblem != null) _RoutingNotice(detail: state.routingProblem!),
         ],
       );
 
@@ -740,6 +741,55 @@ class _ElapsedState extends State<_Elapsed> {
       style: theme.textTheme.bodySmall?.copyWith(
         color: theme.colorScheme.onSurfaceVariant,
         fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+  }
+}
+
+/// Says that the connection is up but the routing rules are not: the core
+/// refused them, and the app went on without rather than not connect.
+class _RoutingNotice extends StatelessWidget {
+  const _RoutingNotice({required this.detail});
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Card(
+        color: scheme.tertiaryContainer.withValues(alpha: 0.9),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.alt_route_rounded, size: 20, color: scheme.onTertiaryContainer),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(s.routingSkipped,
+                        style: TextStyle(
+                            color: scheme.onTertiaryContainer,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(s.routingSkippedHint,
+                        style: TextStyle(
+                            color: scheme.onTertiaryContainer, fontSize: 12.5)),
+                    const SizedBox(height: 4),
+                    SelectableText(detail,
+                        style: TextStyle(
+                            color: scheme.onTertiaryContainer.withValues(alpha: 0.8),
+                            fontSize: 11.5)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

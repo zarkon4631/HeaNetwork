@@ -68,6 +68,11 @@ class S {
       '$n ${_plural(n, 'исключение', 'исключения', 'исключений')}',
       '$n ${n == 1 ? 'exception' : 'exceptions'}');
   String get errorTitle => _t('Не удалось подключиться', 'Could not connect');
+  String get routingSkipped => _t(
+      'Подключено без правил маршрутизации', 'Connected without the routing rules');
+  String get routingSkippedHint => _t(
+      'Ядро не приняло правила сайтов или маршрутизацию из панели, поэтому подключение установлено без них. Проверьте правила на странице «Маршруты» или сообщите администратору панели.',
+      'The core would not take the site rules or the panel’s routing, so the connection was made without them. Check the rules on the Routing page or tell the panel’s administrator.');
   String get connectionLost => _t('Соединение прервано', 'Connection lost');
   String get needAdminTitle => _t('Нужны права администратора', 'Administrator rights needed');
   String get needAdminBody => _t(

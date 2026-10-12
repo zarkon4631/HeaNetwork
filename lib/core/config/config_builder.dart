@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/panel_routing.dart';
 import '../models/profile.dart';
 import '../models/settings.dart';
+import 'rule_values.dart';
 
 enum CorePlatform { windows, android }
 
@@ -194,7 +195,10 @@ Map<String, dynamic> _domainConditions(Iterable<DomainRule> rules,
   final out = <String, List<String>>{};
   for (final r in rules) {
     if (r.value.trim().isEmpty) continue;
-    if (domainsOnly && r.kind == DomainRuleKind.ipCidr) continue;
+    if (r.kind == DomainRuleKind.ipCidr) {
+      // A range the core cannot read would keep it from starting at all.
+      if (domainsOnly || !isCoreAddress(r.value)) continue;
+    }
     out.putIfAbsent(r.kind.key, () => []).add(r.value.trim());
   }
   return out;

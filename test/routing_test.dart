@@ -5,9 +5,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/core/config/config_builder.dart';
+import 'package:heanetwork/core/config/rule_values.dart';
 import 'package:heanetwork/core/models/panel_routing.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/parsers/import_parser.dart';
+import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/services/device_identity.dart';
 import 'package:heanetwork/core/services/subscription_service.dart';
 import 'package:heanetwork/ui/settings_page.dart';
@@ -35,7 +37,8 @@ final ruProfile = {
   'DomainStrategy': 'IPIfNonMatch',
 };
 
-final corePath = '${Directory.current.path}\\.cache\\core\\sing-box.exe';
+final corePath = Platform.environment['HEA_CORE'] ??
+    '${Directory.current.path}\\.cache\\core\\sing-box.exe';
 final ruleSetDir = '${Directory.current.path}\\assets\\rulesets'.replaceAll('\\', '/');
 const bundled = {'geosite-category-ru', 'geoip-ru', 'geosite-category-ads-all'};
 
@@ -61,6 +64,36 @@ List<Map<String, dynamic>> routeRules(Map<String, dynamic> c) =>
 
 bool has(Map<String, dynamic> rule, String key, String value) =>
     (rule[key] as List?)?.contains(value) ?? false;
+
+/// A core that, like the real one, will not start on routing it cannot read.
+class PickyCore extends FakeCore {
+  int starts = 0;
+  String complaint =
+      'initialize router: parse rule[5]: ipcidr: parse [0]: prefix length out of range';
+  bool Function(Map<String, dynamic> config)? refuses;
+
+  @override
+  Future<void> start(Map<String, dynamic> config) async {
+    starts++;
+    if (refuses?.call(config) ?? false) throw CoreException(complaint);
+    return super.start(config);
+  }
+}
+
+/// What an administrator can mistype in the panel, next to entries that
+/// are fine.
+final sloppyProfile = {
+  'GlobalProxy': 'true',
+  'ProxySites': [
+    'regexp:(',
+    'regexp:a(?=b)',
+    r'regexp:(a)\1',
+    r'regexp:^.*\.ok\.example$',
+    'regexp:(?i)netflix',
+    'fine.example',
+  ],
+  'DirectIp': ['999.1.1.1', '10.0.0.0/40', '::1/200', ':', '10.0.0.0/8', '1.1.1.1', 'fe80::/10'],
+};
 
 void main() {
   group('happ routing profile', () {
@@ -177,8 +210,10 @@ void main() {
     });
 
     test('the real core accepts a config with a panel profile', () async {
-      if (!File(corePath).existsSync()) {
-        markTestSkipped('core not found');
+      // Needs the core and the bundled lists; tool/fetch_assets.ps1 gets both.
+      if (!File(corePath).existsSync() ||
+          !File('$ruleSetDir/geoip-ru.srs').existsSync()) {
+        markTestSkipped('core or rule-sets not found');
         return;
       }
       final tmp = Directory.systemTemp.createTempSync('hea_route_');
@@ -407,6 +442,122 @@ void main() {
           '10 22H2');
       expect(DeviceIdentity.windowsRelease('"Windows 11" 10.0 (Build 22631)', null),
           '11 (build 22631)');
+    });
+  });
+
+  group('routing never stands in the way of connecting', () {
+    test('addresses and expressions the core would refuse are recognised', () {
+      for (final ok in ['10.0.0.0/8', '1.1.1.1', '0.0.0.0/0', 'fe80::/10', '::1', '2001:db8::/32']) {
+        expect(isCoreAddress(ok), isTrue, reason: ok);
+      }
+      for (final bad in [
+        '999.1.1.1', '300.1.1.1/32', '10.0.0.0/40', '10.0.0.0/', '01.2.3.4',
+        '::1/200', ':', '(', '', '1.2.3', 'example.com',
+      ]) {
+        expect(isCoreAddress(bad), isFalse, reason: bad);
+      }
+      for (final ok in [r'^.*\.example\.com$', '(?i)netflix', '(?P<n>a)b', '(?i:a)b', 'a|b']) {
+        expect(isCoreRegex(ok), isTrue, reason: ok);
+      }
+      for (final bad in ['(', 'a(?=b)', 'a(?!b)', '(?<=a)b', r'(a)\1', 'a++', '']) {
+        expect(isCoreRegex(bad), isFalse, reason: bad);
+      }
+    });
+
+    test('a profile with mistakes keeps its sound entries and loses the rest', () {
+      final panel = PanelRouting.fromProfile(sloppyProfile);
+      final proxy = panel.conditions(RouteAction.proxy, available: (_) => true);
+      expect(proxy['domain_regex'], [r'^.*\.ok\.example$', '(?i)netflix']);
+      expect(proxy['domain_suffix'], ['fine.example']);
+      final direct = panel.conditions(RouteAction.direct, available: (_) => true);
+      expect(direct['ip_cidr'], ['10.0.0.0/8', '1.1.1.1', 'fe80::/10']);
+    });
+
+    test('what the user types as an address is one, or is taken as a name', () {
+      expect(DomainRule.guess('10.0.0.0/8', RouteAction.direct).kind, DomainRuleKind.ipCidr);
+      expect(DomainRule.guess('2001:db8::1', RouteAction.direct).value, '2001:db8::1/128');
+      expect(DomainRule.guess('300.1.1.1', RouteAction.direct).kind,
+          isNot(DomainRuleKind.ipCidr));
+      expect(DomainRule.guess('10.0.0.0/99', RouteAction.direct).kind,
+          isNot(DomainRuleKind.ipCidr));
+
+      // A rule an earlier version saved is left out rather than passed on.
+      final config = configWith(null,
+          ruleSets: const {},
+          routing: RoutingSettings(domains: [
+            DomainRule(kind: DomainRuleKind.ipCidr, value: '10.0.0.0/99', action: RouteAction.block),
+            DomainRule(kind: DomainRuleKind.ipCidr, value: '10.1.0.0/16', action: RouteAction.block),
+          ]));
+      expect([for (final r in routeRules(config)) ...?(r['ip_cidr'] as List?)], ['10.1.0.0/16']);
+    });
+
+    test('the real core starts on what is left of them', () async {
+      if (!File(corePath).existsSync()) {
+        markTestSkipped('core not found');
+        return;
+      }
+      final tmp = Directory.systemTemp.createTempSync('hea_route_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final config = configWith(PanelRouting.fromProfile(sloppyProfile),
+          ruleSets: const {},
+          cache: tmp.path.replaceAll('\\', '/'),
+          routing: RoutingSettings(domains: [
+            DomainRule(kind: DomainRuleKind.ipCidr, value: '300.1.1.1/32', action: RouteAction.block),
+          ]));
+      final file = File('${tmp.path}\\c.json')..writeAsStringSync(jsonEncode(config));
+      final r = await Process.run(corePath, ['check', '-c', file.path, '-D', tmp.path]);
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+    }, testOn: 'windows');
+
+    test('a start the core refuses over its routing is repeated without it', () async {
+      final core = PickyCore();
+      final state = makeState(core: core);
+      bool carriesSiteRules(Map<String, dynamic> c) =>
+          routeRules(c).any((r) => has(r, 'domain_suffix', 'youtube.com')) ||
+          (c['route'] as Map).containsKey('rule_set');
+      // Whatever it is about the rules, the core will have none of them.
+      core.refuses = carriesSiteRules;
+
+      await state.connect();
+      expect(state.isConnected, isTrue, reason: 'the rules must not cost the connection');
+      expect(core.starts, 2);
+      expect(carriesSiteRules(core.lastConfig!), isFalse);
+      expect(state.error, isNull);
+      expect(state.routingProblem, contains('parse rule'));
+      // Per-program rules are the user's own and cannot be malformed: kept.
+      expect(routeRules(core.lastConfig!).any((r) => r.containsKey('process_path_regex')),
+          isTrue);
+
+      // Once the rules are sound again the next connection carries them.
+      await state.disconnect();
+      core.refuses = null;
+      await state.connect();
+      expect(state.routingProblem, isNull);
+      expect(carriesSiteRules(core.lastConfig!), isTrue);
+      await state.disconnect();
+    });
+
+    test('a failure that has nothing to do with routing is not tried twice', () async {
+      final core = PickyCore()
+        ..complaint = 'listen tcp 127.0.0.1:2080: bind: address already in use'
+        ..refuses = (_) => true;
+      final state = makeState(core: core);
+      await state.connect();
+      expect(core.starts, 1);
+      expect(state.isConnected, isFalse);
+      expect(state.error, contains('address already in use'));
+      expect(state.routingProblem, isNull);
+    });
+
+    test('which complaints of the core are about routing', () {
+      expect(isRoutingComplaint('initialize router: parse rule[3]: ipcidr: parse [0]'), isTrue);
+      expect(isRoutingComplaint('initialize router: parse rule-set[0]: unsupported version: 9'),
+          isTrue);
+      expect(isRoutingComplaint('initialize dns router: parse dns rule[1]: bad'), isTrue);
+      expect(isRoutingComplaint('listen tcp 127.0.0.1:2080: bind: address already in use'),
+          isFalse);
+      expect(isRoutingComplaint('start inbound/tun[tun-in]: configure tun interface: Access is denied.'),
+          isFalse);
     });
   });
 

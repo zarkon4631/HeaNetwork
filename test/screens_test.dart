@@ -430,6 +430,16 @@ void main() {
       expect(find.textContaining('dns: lookup'), findsOneWidget);
     }, variant: variant);
 
+    testWidgets('a connection made without the routing rules says so', (tester) async {
+      final state = makeState();
+      state.settings.locale = 'ru';
+      state.routingProblem = 'initialize router: parse rule[5]: prefix length out of range';
+      await pumpApp(tester, state, size: desktop);
+      expect(find.text('Подключено без правил маршрутизации'), findsOneWidget);
+      expect(find.textContaining('parse rule[5]'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
     testWidgets('the mode switch flips between system proxy and VPN', (tester) async {
       final state = makeState();
       state.settings.locale = 'ru';

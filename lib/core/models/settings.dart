@@ -1,3 +1,4 @@
+import '../config/rule_values.dart';
 import 'panel_routing.dart';
 import 'profile.dart';
 
@@ -531,8 +532,9 @@ class DomainRule {
     final v = input.trim().toLowerCase();
     final isIp = RegExp(r'^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$').hasMatch(v) ||
         (v.contains(':') && RegExp(r'^[0-9a-f:]+(/\d{1,3})?$').hasMatch(v));
-    if (isIp) {
-      final cidr = v.contains('/') ? v : (v.contains(':') ? '$v/128' : '$v/32');
+    final cidr = v.contains('/') ? v : (v.contains(':') ? '$v/128' : '$v/32');
+    // Only what the core reads as an address is one: "300.1.1.1" is a name.
+    if (isIp && isCoreAddress(cidr)) {
       return DomainRule(kind: DomainRuleKind.ipCidr, value: cidr, action: action);
     }
     final host = v
