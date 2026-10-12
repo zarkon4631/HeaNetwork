@@ -1194,8 +1194,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  bool _disposed = false;
+
+  /// Work started in the background (a download, a measurement) can end
+  /// after the state is gone; then there is nobody left to tell.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     core.removeListener(_onCoreChanged);
     _subscriptionTimer?.cancel();
     _stopStats();

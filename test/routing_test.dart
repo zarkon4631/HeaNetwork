@@ -1,5 +1,6 @@
 // Routing that comes from the panel (Happ format), programs that run as
 // several processes, real device names, and the log filter.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,7 +12,10 @@ import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/parsers/import_parser.dart';
 import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/services/device_identity.dart';
+import 'package:heanetwork/core/services/storage.dart';
 import 'package:heanetwork/core/services/subscription_service.dart';
+import 'package:heanetwork/core/services/updater.dart';
+import 'package:heanetwork/state/app_state.dart';
 import 'package:heanetwork/ui/settings_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -275,6 +279,39 @@ void main() {
       await state.store.flush();
       expect(File('${state.paths.data.path}/subscriptions.json').readAsStringSync(),
           isNot(contains('DirectSites')));
+    });
+
+    test('a list of sites that arrives after the app is gone is no trouble', () async {
+      // Lists are fetched in the background. The download here ends only
+      // after the state has been disposed of, as it may when a window is
+      // closed (or a test has finished) while the network is slow.
+      final dir = Directory.systemTemp.createTempSync('hea_late_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final arrives = Completer<void>();
+      final state = AppState(
+        store: AppStore(Directory('${dir.path}/data')),
+        core: FakeCore(),
+        platform: CorePlatform.windows,
+        paths: AppPaths(support: dir, corePath: r'C:\none\sing-box.exe'),
+        appVersion: '1.0.0',
+        elevated: false,
+        updater: Updater(client: offlineClient()),
+        httpClient: MockClient((_) async {
+          await arrives.future;
+          // Enough of a list to be taken for one and written to disk.
+          return http.Response.bytes([0x53, 0x52, 0x53, 3, 0, 0, 0, 0], 200);
+        }),
+      );
+      await state.importText(happLink(ruProfile));
+      state.dispose();
+
+      arrives.complete();
+      // Long enough for the download to be dealt with; anything it throws
+      // now fails this test.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(
+          Directory('${dir.path}/rulesets').listSync().whereType<File>(), isNotEmpty,
+          reason: 'the lists did arrive and were kept');
     });
 
     test('a routing link can be added by hand and removed again', () async {

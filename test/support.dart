@@ -209,7 +209,9 @@ AppState makeState({
     appVersion: '1.0.3',
     elevated: elevated,
     updater: Updater(client: client ?? offlineClient()),
-    httpClient: subscriptionClient,
+    // Never the real network: a test must not depend on what a server
+    // happens to answer, or on when.
+    httpClient: subscriptionClient ?? offlineClient(),
     tcpProbe: tcpProbe,
     publicIp: publicIp,
     tunnelCheck: tunnelCheck,
