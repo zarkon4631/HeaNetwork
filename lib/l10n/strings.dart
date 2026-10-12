@@ -68,6 +68,11 @@ class S {
       '$n ${_plural(n, 'исключение', 'исключения', 'исключений')}',
       '$n ${n == 1 ? 'exception' : 'exceptions'}');
   String get errorTitle => _t('Не удалось подключиться', 'Could not connect');
+  String get stackSwitched => _t(
+      'Сетевой стек VPN переключён на gVisor', 'The VPN network stack was switched to gVisor');
+  String get stackSwitchedHint => _t(
+      'Через обычный стек туннель не принимал соединения: так бывает, когда файрвол или антивирус блокирует входящие подключения. Настройка сохранена; вернуть её можно в «Настройки → Подключение».',
+      'The tunnel took no connections on the usual stack, which happens when a firewall or an antivirus blocks incoming connections. The setting is saved; it can be changed back under Settings → Connection.');
   String get routingSkipped => _t(
       'Подключено без правил маршрутизации', 'Connected without the routing rules');
   String get routingSkippedHint => _t(

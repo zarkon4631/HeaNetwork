@@ -16,6 +16,20 @@ import 'support.dart';
 
 Future<void> tick([int ms = 60]) => Future<void>.delayed(Duration(milliseconds: ms));
 
+/// Counts how often it is started.
+class CountingCore extends FakeCore {
+  int starts = 0;
+
+  @override
+  Future<void> start(Map<String, dynamic> config) {
+    starts++;
+    return super.start(config);
+  }
+}
+
+Map<String, dynamic> tunOf(Map<String, dynamic> config) =>
+    (config['inbounds'] as List).cast<Map<String, dynamic>>().firstWhere((i) => i['type'] == 'tun');
+
 void main() {
   group('cancelling', () {
     test('a connection being set up can be called off, and that is no error', () async {
@@ -89,6 +103,108 @@ void main() {
       core.fail(CoreException('dial tcp: connection refused'));
       await connecting;
       expect(state.error, 'dial tcp: connection refused');
+    });
+  });
+
+  group('a tunnel that takes no connections', () {
+    // VPN mode on Windows, with a check of the tunnel that answers by the
+    // network stack the running core was given. A firewall that blocks
+    // incoming connections lets nothing through the system's stack.
+    AppState vpn(CountingCore core, bool Function(String stack) accepts,
+        {List<String>? asked, CorePlatform platform = CorePlatform.windows}) {
+      final state = makeState(
+          core: core,
+          elevated: true,
+          platform: platform,
+          tunnelCheck: () async {
+            final stack = tunOf(core.lastConfig!)['stack'] as String;
+            asked?.add(stack);
+            return accepts(stack);
+          });
+      state.settings.mode = ConnectionMode.tun;
+      return state;
+    }
+
+    test('is started again on the stack that needs nothing from the system', () async {
+      final core = CountingCore();
+      final asked = <String>[];
+      final state = vpn(core, (stack) => stack == 'gvisor', asked: asked);
+      expect(state.settings.tunStack, 'mixed');
+
+      await state.connect();
+      expect(state.isConnected, isTrue);
+      expect(core.starts, 2);
+      expect(asked, ['mixed', 'gvisor']);
+      expect(tunOf(core.lastConfig!)['stack'], 'gvisor');
+      expect(state.settings.tunStack, 'gvisor', reason: 'remembered for the next time');
+      expect(state.stackSwitched, isTrue);
+      expect(state.error, isNull);
+      expect(state.pendingRestart, isFalse);
+
+      // The next connection starts right and has nothing to find out.
+      await state.disconnect();
+      expect(state.stackSwitched, isFalse);
+      asked.clear();
+      await state.connect();
+      expect(core.starts, 3);
+      expect(asked, isEmpty);
+      expect(state.stackSwitched, isFalse);
+      await state.disconnect();
+    });
+
+    test('one that works is left as it is', () async {
+      final core = CountingCore();
+      final asked = <String>[];
+      final state = vpn(core, (_) => true, asked: asked);
+      await state.connect();
+      expect(core.starts, 1);
+      expect(asked, ['mixed']);
+      expect(state.settings.tunStack, 'mixed');
+      expect(state.stackSwitched, isFalse);
+      await state.disconnect();
+    });
+
+    test('when the other stack is no better, the setting stays the user\'s', () async {
+      final core = CountingCore();
+      final asked = <String>[];
+      final state = vpn(core, (_) => false, asked: asked);
+      await state.connect();
+      expect(state.isConnected, isTrue, reason: 'still better connected than not');
+      expect(core.starts, 2);
+      expect(asked, ['mixed', 'gvisor']);
+      expect(state.settings.tunStack, 'mixed');
+      expect(state.stackSwitched, isFalse);
+      expect(state.pendingRestart, isFalse);
+      await state.disconnect();
+    });
+
+    test('nothing is checked without a tunnel of that kind', () async {
+      final asked = <String>[];
+
+      // System proxy mode has no tunnel.
+      var core = CountingCore();
+      var state = vpn(core, (_) => false, asked: asked);
+      state.settings.mode = ConnectionMode.systemProxy;
+      await state.connect();
+      expect(core.starts, 1);
+      await state.disconnect();
+
+      // A stack the user already set to gVisor has nothing to fall back to.
+      core = CountingCore();
+      state = vpn(core, (_) => false, asked: asked);
+      state.settings.tunStack = 'gvisor';
+      await state.connect();
+      expect(core.starts, 1);
+      await state.disconnect();
+
+      // On Android the tunnel is the system's own.
+      core = CountingCore();
+      state = vpn(core, (_) => false, asked: asked, platform: CorePlatform.android);
+      await state.connect();
+      expect(core.starts, 1);
+      await state.disconnect();
+
+      expect(asked, isEmpty);
     });
   });
 

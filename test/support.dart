@@ -118,6 +118,7 @@ AppState makeState({
   http.Client? subscriptionClient,
   TcpProbe? tcpProbe,
   PublicIp? publicIp,
+  Future<bool> Function()? tunnelCheck,
   CoreController? core,
 }) {
   final dir = Directory.systemTemp.createTempSync('hea_ui_');
@@ -211,6 +212,7 @@ AppState makeState({
     httpClient: subscriptionClient,
     tcpProbe: tcpProbe,
     publicIp: publicIp,
+    tunnelCheck: tunnelCheck,
     device: DeviceIdentity(
       hwid: DeviceIdentity.hash('test-device'),
       os: tv ? 'Android TV' : (platform == CorePlatform.windows ? 'Windows' : 'Android'),

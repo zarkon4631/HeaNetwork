@@ -11,6 +11,7 @@ import 'core/services/core_controller.dart';
 import 'core/services/device_identity.dart';
 import 'core/services/public_ip.dart';
 import 'core/services/storage.dart';
+import 'core/services/tunnel_check.dart';
 import 'platform/android/widget_bridge.dart';
 import 'platform/windows/desktop_shell.dart';
 import 'platform/windows/elevation.dart';
@@ -66,6 +67,7 @@ Future<void> main(List<String> args) async {
     autostart: windows ? const Autostart() : null,
     device: device,
     publicIp: PublicIp.platform(),
+    tunnelCheck: windows ? tunnelAcceptsTcp : null,
   );
   // The install id is generated on first launch; keep it.
   unawaited(store.saveSettings());

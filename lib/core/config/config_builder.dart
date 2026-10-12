@@ -64,6 +64,15 @@ const ruDomainSuffixes = ['.ru', '.su', '.xn--p1ai', '.moscow', '.tatar'];
 
 const urlTestTarget = 'https://www.gstatic.com/generate_204';
 
+/// The tunnel's own IPv4 address. The subnet deliberately differs from
+/// sing-box's default 172.19.0.1/30, which most other clients use.
+const tunAddress4 = '172.29.117.1/30';
+
+/// The address next to it, which the core keeps for itself: it answers DNS
+/// there, and takes any TCP connection made to it. That makes it the place
+/// to find out whether the tunnel takes connections at all.
+const tunPeer4 = '172.29.117.2';
+
 String profileTag(ProxyProfile p) => 'p-${p.id}';
 
 /// Returns [profile]'s outbound with the anti-DPI options merged in.
@@ -251,9 +260,8 @@ Map<String, dynamic> buildConfig({
       'type': 'tun',
       'tag': 'tun-in',
       // IPv6 is always captured so it cannot leak; it is rejected by a
-      // route rule when disabled. The subnet deliberately differs from
-      // sing-box's default 172.19.0.1/30 that most other clients use.
-      'address': ['172.29.117.1/30', 'fdfe:dcba:9877::1/126'],
+      // route rule when disabled.
+      'address': [tunAddress4, 'fdfe:dcba:9877::1/126'],
       'auto_route': true,
       'strict_route': settings.strictRoute,
       'stack': settings.tunStack,

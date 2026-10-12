@@ -134,6 +134,7 @@ class AppState extends ChangeNotifier {
     this.httpClient,
     this.tcpProbe,
     this.publicIp,
+    this.tunnelCheck,
     bool? elevated,
     Updater? updater,
   })  : elevated = elevated ??
@@ -168,6 +169,10 @@ class AppState extends ChangeNotifier {
   /// requests then carry; null sends none.
   final PublicIp? publicIp;
 
+  /// Finds out whether the running tunnel takes TCP connections (Windows);
+  /// null skips the question.
+  final Future<bool> Function()? tunnelCheck;
+
   bool get isWindows => platform == CorePlatform.windows;
   bool get isAndroid => platform == CorePlatform.android;
 
@@ -197,6 +202,10 @@ class AppState extends ChangeNotifier {
   /// Why this connection was made without the site rules and the panel's
   /// routing, in the core's words; null while they are in force.
   String? routingProblem;
+
+  /// This connection found the tunnel taking nothing on the configured
+  /// network stack and moved to gVisor, which is now the setting.
+  bool stackSwitched = false;
 
   /// Settings changed while connected; a reconnect applies them.
   bool pendingRestart = false;
@@ -535,6 +544,42 @@ class AppState extends ChangeNotifier {
         _startingHere = false;
       }
 
+      stackSwitched = false;
+      if (await _tunnelTakesNothing()) {
+        // The tunnel's default stack hands every TCP connection to Windows
+        // as an incoming one, and a firewall that blocks incoming
+        // connections (Portmaster does by default) then lets none through:
+        // connected, and nothing works. gVisor needs nothing from the
+        // system, so the core is started again on it.
+        final configured = settings.tunStack;
+        settings.tunStack = 'gvisor';
+        var better = false;
+        try {
+          await core.stop();
+          activeMode = settings.mode;
+          _startingHere = true;
+          try {
+            await core.start(configFor(profile,
+                clashPort: clashPort,
+                clashSecret: secret,
+                mixedPort: mixedPort,
+                plainRouting: routingProblem != null));
+          } finally {
+            _startingHere = false;
+          }
+          better = await tunnelCheck!();
+        } finally {
+          // Kept only when it helped; otherwise the choice stays the user's.
+          if (!better) settings.tunStack = configured;
+          _appliedFingerprint = _coreFingerprint();
+        }
+        if (better) {
+          stackSwitched = true;
+          configRevision++;
+          unawaited(store.saveSettings());
+        }
+      }
+
       if (isWindows && settings.mode == ConnectionMode.systemProxy) {
         systemProxy?.enable(mixedPort);
       }
@@ -559,6 +604,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// True when the core runs a tunnel on a stack that depends on Windows
+  /// accepting connections, and a connection made into it gets nowhere.
+  Future<bool> _tunnelTakesNothing() async {
+    final check = tunnelCheck;
+    if (check == null ||
+        !isWindows ||
+        settings.mode != ConnectionMode.tun ||
+        settings.tunStack == 'gvisor') {
+      return false;
+    }
+    return !await check();
+  }
+
   /// Throws away the lists of sites on disk and gets them again, after the
   /// core could not read one of them.
   Future<void> _renewRuleSets() async {
@@ -576,6 +634,7 @@ class AppState extends ChangeNotifier {
   /// Disconnects, or calls off a connection that is still being set up.
   Future<void> disconnect() async {
     routingProblem = null;
+    stackSwitched = false;
     _stopStats();
     systemProxy?.restore();
     await core.stop();

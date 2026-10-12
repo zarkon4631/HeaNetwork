@@ -74,7 +74,19 @@ class HomePage extends StatelessWidget {
         children: [
           ConnectPanel(state: state),
           if (state.error != null) _ErrorCard(state: state),
-          if (state.routingProblem != null) _RoutingNotice(detail: state.routingProblem!),
+          if (state.routingProblem != null)
+            _NoticeCard(
+              icon: Icons.alt_route_rounded,
+              title: S.of(context).routingSkipped,
+              body: S.of(context).routingSkippedHint,
+              detail: state.routingProblem,
+            ),
+          if (state.stackSwitched)
+            _NoticeCard(
+              icon: Icons.swap_horiz_rounded,
+              title: S.of(context).stackSwitched,
+              body: S.of(context).stackSwitchedHint,
+            ),
         ],
       );
 
@@ -746,15 +758,21 @@ class _ElapsedState extends State<_Elapsed> {
   }
 }
 
-/// Says that the connection is up but the routing rules are not: the core
-/// refused them, and the app went on without rather than not connect.
-class _RoutingNotice extends StatelessWidget {
-  const _RoutingNotice({required this.detail});
-  final String detail;
+/// Says that the connection is up, but not quite as it was set up: the
+/// app changed something rather than not connect (went on without routing
+/// rules the core refused, moved to a network stack that works here).
+class _NoticeCard extends StatelessWidget {
+  const _NoticeCard(
+      {required this.icon, required this.title, required this.body, this.detail});
+  final IconData icon;
+  final String title;
+  final String body;
+
+  /// The technical reason, in the core's words.
+  final String? detail;
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(top: 10),
@@ -765,25 +783,27 @@ class _RoutingNotice extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.alt_route_rounded, size: 20, color: scheme.onTertiaryContainer),
+              Icon(icon, size: 20, color: scheme.onTertiaryContainer),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(s.routingSkipped,
+                    Text(title,
                         style: TextStyle(
                             color: scheme.onTertiaryContainer,
                             fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
-                    Text(s.routingSkippedHint,
+                    Text(body,
                         style: TextStyle(
                             color: scheme.onTertiaryContainer, fontSize: 12.5)),
-                    const SizedBox(height: 4),
-                    SelectableText(detail,
-                        style: TextStyle(
-                            color: scheme.onTertiaryContainer.withValues(alpha: 0.8),
-                            fontSize: 11.5)),
+                    if (detail != null) ...[
+                      const SizedBox(height: 4),
+                      SelectableText(detail!,
+                          style: TextStyle(
+                              color: scheme.onTertiaryContainer.withValues(alpha: 0.8),
+                              fontSize: 11.5)),
+                    ],
                   ],
                 ),
               ),
