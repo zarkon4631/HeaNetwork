@@ -16,6 +16,21 @@ $ProgressPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $PSScriptRoot
 $pin = Get-Content (Join-Path $PSScriptRoot 'core.json') -Raw | ConvertFrom-Json
 
+# GitHub answers a download with a 5xx now and then; one bad answer should not
+# fail the whole build.
+function Get-File($url, $dest) {
+    for ($try = 1; ; $try++) {
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $dest
+            return
+        } catch {
+            if ($try -ge 4) { throw }
+            Write-Host "  attempt $try failed: $($_.Exception.Message)"
+            Start-Sleep -Seconds (5 * $try)
+        }
+    }
+}
+
 if (-not $SkipCore) {
     $coreDir = Join-Path $root '.cache/core'
     $exe = Join-Path $coreDir 'sing-box.exe'
@@ -29,7 +44,7 @@ if (-not $SkipCore) {
         $zip = Join-Path $coreDir $pin.windows_amd64.asset
         $url = "https://github.com/$($pin.repo)/releases/download/$($pin.tag)/$($pin.windows_amd64.asset)"
         Write-Host "downloading $url"
-        Invoke-WebRequest -Uri $url -OutFile $zip
+        Get-File $url $zip
 
         $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
         if ($hash -ne $pin.windows_amd64.sha256) {
@@ -58,7 +73,7 @@ if (-not $SkipRuleSets) {
     foreach ($p in $pin.rule_sets.PSObject.Properties) {
         $dest = Join-Path $rsDir "$($p.Name).srs"
         Write-Host "downloading $($p.Value)"
-        Invoke-WebRequest -Uri $p.Value -OutFile $dest
+        Get-File $p.Value $dest
         if ((Get-Item $dest).Length -lt 64) { throw "rule-set $($p.Name) looks truncated" }
     }
 }
