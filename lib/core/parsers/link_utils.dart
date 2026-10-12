@@ -7,6 +7,13 @@ class LinkParseException implements Exception {
   String toString() => message;
 }
 
+/// A server that is described correctly but needs something the core does
+/// not have. [what] names it as `protocol:masque` or `transport:xdrive`.
+class UnsupportedException extends LinkParseException {
+  UnsupportedException(this.what) : super('unsupported ${what.replaceFirst(':', ': ')}');
+  final String what;
+}
+
 /// Decodes standard or URL-safe base64, with or without padding.
 /// Returns null when [input] is not base64.
 String? tryBase64(String input) {
@@ -30,11 +37,13 @@ String decodeComponent(String s) {
   }
 }
 
+const _descriptionMark = '?serverDescription=';
+
 /// A share link split by hand. `Uri.parse` is avoided because it rejects
 /// port ranges, lowercases case-sensitive parts and treats `+` as a space.
 class RawLink {
   RawLink._(this.scheme, this.userInfo, this.host, this.portSpec, this.path,
-      this.query, this.name);
+      this.query, this.name, this.description);
 
   final String scheme;
 
@@ -47,6 +56,9 @@ class RawLink {
   final String path;
   final Map<String, String> query;
   final String name;
+
+  /// What the panel says about the server next to its name, if anything.
+  final String? description;
 
   int get port {
     final m = RegExp(r'^\d+').firstMatch(portSpec);
@@ -70,9 +82,22 @@ class RawLink {
     var rest = link.substring(schemeEnd + 3);
 
     var name = '';
+    String? description;
     final hash = rest.indexOf('#');
     if (hash >= 0) {
-      name = decodeComponent(rest.substring(hash + 1)).trim();
+      var fragment = rest.substring(hash + 1);
+      // 3x-ui appends a host's description to the name, unescaped, as
+      // `?serverDescription=<base64>`; a name that merely contains those
+      // words arrives escaped and is left alone.
+      final mark = fragment.lastIndexOf(_descriptionMark);
+      if (mark >= 0) {
+        final text = tryBase64(fragment.substring(mark + _descriptionMark.length))?.trim();
+        if (text != null && text.isNotEmpty) {
+          description = text;
+          fragment = fragment.substring(0, mark);
+        }
+      }
+      name = decodeComponent(fragment).trim();
       rest = rest.substring(0, hash);
     }
 
@@ -114,7 +139,7 @@ class RawLink {
     }
 
     return RawLink._(scheme, userInfo, host, portSpec, path,
-        parseQuery(queryText), name);
+        parseQuery(queryText), name, description);
   }
 }
 
@@ -128,6 +153,14 @@ Map<String, String> parseQuery(String text) {
   }
   return out;
 }
+
+/// Ports a QUIC client hops between, the way panels write them
+/// (`20000-30000,40000`), as the core's ranges: `20000:30000`, `40000:40000`.
+List<String> hopPortRanges(Iterable<String> specs) => [
+      for (final spec in specs)
+        for (final part in splitList(spec))
+          part.contains(RegExp('[-:]')) ? part.replaceAll('-', ':') : '$part:$part',
+    ];
 
 List<String> splitList(String? v) => v == null
     ? const []

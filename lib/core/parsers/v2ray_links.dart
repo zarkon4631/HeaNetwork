@@ -143,7 +143,7 @@ Map<String, dynamic>? transportFromParams(Map<String, String> p) {
     case 'quic':
       return {'type': 'quic'};
   }
-  throw LinkParseException('unsupported transport: $type');
+  throw UnsupportedException('transport:$type');
 }
 
 /// `extra` is URL-encoded JSON in Xray links; some tools base64 it instead.
@@ -350,6 +350,7 @@ ProxyProfile parseVless(String link) {
     type: Protocol.vless,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 
@@ -372,6 +373,7 @@ ProxyProfile parseTrojan(String link) {
     type: Protocol.trojan,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 
@@ -427,5 +429,7 @@ ProxyProfile parseVmess(String link) {
     type: Protocol.vmess,
     outbound: out,
     link: link,
+    // VMess has no fragment; the description is a key of its own.
+    description: s('serverDescription').isEmpty ? null : s('serverDescription'),
   );
 }

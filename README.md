@@ -25,7 +25,7 @@
 
 ## Возможности
 
-- **Протоколы**: VLESS, VMess, Trojan, Shadowsocks, WireGuard, AmneziaWG, Hysteria 1/2, TUIC, SOCKS, HTTP; Reality, XHTTP, WebSocket, gRPC, HTTPUpgrade, mKCP.
+- **Протоколы**: VLESS, VMess, Trojan, Shadowsocks, WireGuard, AmneziaWG, Hysteria 1/2, TUIC, SOCKS, HTTP; Reality, XHTTP, WebSocket, gRPC, HTTPUpgrade, mKCP. MASQUE и транспорт XDRIVE из 3x-ui 3.10 ядро пока не поддерживает: такие серверы приложение называет под подпиской и в список не добавляет.
 - **Подписки 3x-ui**: обычные и JSON, остаток трафика и срок, объявления, HWID для лимита устройств, ключи `vpn://`.
 - **Маршрутизация из панели**: правила в формате Happ, которые администратор задал в 3x-ui, приходят вместе с подпиской.
 - **Маршрутизация по приложениям**: *Напрямую / Через VPN / Блок* для каждой программы. Steam, Epic, Discord и другие добавляются сразу со всеми своими процессами.
@@ -85,4 +85,4 @@ flutter build windows
 
 ## English
 
-HeaNetwork is a VPN client for **Windows**, **Android** and **Android TV**, made for 3x-ui panels: every protocol the panel offers, subscriptions with HWID, routing rules pushed from the panel (Happ format), per-application routing with program groups, always-on anti-DPI measures, TCP ping, self-update verified by SHA-256. Built with Flutter on the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) core. [Download](https://github.com/zarkon4631/HeaNetwork/releases/latest) · GPL-3.0.
+HeaNetwork is a VPN client for **Windows**, **Android** and **Android TV**, made for 3x-ui panels: the protocols the panel offers (all but MASQUE and the XDRIVE transport, which the core does not have yet), subscriptions with HWID, routing rules pushed from the panel (Happ format), per-application routing with program groups, always-on anti-DPI measures, TCP ping, self-update verified by SHA-256. Built with Flutter on the [sing-box-extended](https://github.com/shtorm-7/sing-box-extended) core. [Download](https://github.com/zarkon4631/HeaNetwork/releases/latest) · GPL-3.0.

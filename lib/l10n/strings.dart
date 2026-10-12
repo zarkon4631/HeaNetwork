@@ -114,6 +114,35 @@ class S {
   String get nothingImported =>
       _t('Не удалось распознать ни одного сервера', 'No server could be recognised');
   String skipped(int n) => _t('Пропущено: $n', 'Skipped: $n');
+
+  /// What a server needs that the core does not have: `protocol:masque`
+  /// reads "протокол MASQUE". Anything else is shown as it is.
+  String unsupportedWhat(String reason) {
+    final sep = reason.indexOf(':');
+    if (sep <= 0) return reason;
+    final name = reason.substring(sep + 1).toUpperCase();
+    return switch (reason.substring(0, sep)) {
+      'protocol' => _t('протокол $name', 'the $name protocol'),
+      'transport' => _t('транспорт $name', 'the $name transport'),
+      _ => reason,
+    };
+  }
+
+  /// Servers that were left out of the list, by name and reason.
+  String unsupportedServers(List<(String name, String reason)> servers) {
+    final shown = servers.take(3).map((e) {
+      final what = unsupportedWhat(e.$2);
+      return e.$1.isEmpty ? what : '${e.$1} ($what)';
+    }).join(', ');
+    final more = servers.length - 3;
+    final tail = more > 0 ? _t(' и ещё $more', ' and $more more') : '';
+    return _t('Не показаны: $shown$tail. Ядро приложения с ними не работает.',
+        'Not shown: $shown$tail. The app\'s core cannot connect to them.');
+  }
+
+  String onlyUnsupported(String what) => _t(
+      'В подписке только серверы, с которыми ядро приложения не работает: $what',
+      'The subscription only has servers the app\'s core cannot connect to: $what');
   String get share => _t('Поделиться', 'Share');
   String get shareHint => _t(
       'Отсканируйте код в HeaNetwork на телефоне или скопируйте ссылку',

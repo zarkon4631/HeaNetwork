@@ -25,11 +25,16 @@ String describeSubscriptionError(S s, Object error) {
     return switch (error.code) {
       SubscriptionError.deviceLimit => s.deviceLimit,
       SubscriptionError.deviceIdRequired => s.deviceIdRequired,
+      SubscriptionError.unsupported =>
+        s.onlyUnsupported(error.message.split(', ').map(s.unsupportedWhat).join(', ')),
       SubscriptionError.other => '${s.subscriptionFailed}: ${error.message}',
     };
   }
   return '${s.subscriptionFailed}: $error';
 }
+
+String _unsupportedNote(S s, List<SkippedServer> servers) =>
+    s.unsupportedServers([for (final e in servers) (e.name, e.reason)]);
 
 void _reportImport(BuildContext context, ImportOutcome outcome) {
   final s = S.of(context);
@@ -45,12 +50,16 @@ void _reportImport(BuildContext context, ImportOutcome outcome) {
   if (outcome.added == 0) {
     showSnack(
         context,
-        outcome.errors.isEmpty
-            ? s.nothingImported
-            : '${s.nothingImported}: ${outcome.errors.first}');
+        outcome.unsupported.isNotEmpty
+            ? _unsupportedNote(s, outcome.unsupported)
+            : outcome.errors.isEmpty
+                ? s.nothingImported
+                : '${s.nothingImported}: ${outcome.errors.first}');
     return;
   }
-  final skipped = outcome.errors.isEmpty ? '' : ' · ${s.skipped(outcome.errors.length)}';
+  // A subscription keeps what it left out on itself; pasted text does not.
+  final left = outcome.errors.isNotEmpty ? outcome.errors.length : outcome.unsupported.length;
+  final skipped = left == 0 ? '' : ' · ${s.skipped(left)}';
   showSnack(context, '${s.imported(outcome.added)}$skipped');
 }
 
@@ -525,7 +534,9 @@ class _SubscriptionSection extends StatelessWidget {
     Future<void> refresh() async {
       try {
         await state.refreshSubscription(sub);
-        if (context.mounted) showSnack(context, s.imported(state.profilesOf(sub.id).length));
+        if (!context.mounted) return;
+        final left = sub.unsupported.isEmpty ? '' : ' · ${s.skipped(sub.unsupported.length)}';
+        showSnack(context, '${s.imported(state.profilesOf(sub.id).length)}$left');
       } on Object catch (e) {
         if (context.mounted) showSnack(context, describeSubscriptionError(s, e));
       }
@@ -591,6 +602,25 @@ class _SubscriptionSection extends StatelessWidget {
             ),
           ),
         for (final p in servers) _ServerTile(profile: p),
+        // Servers the panel sent that the core has no protocol for: said
+        // here, so they are not simply missing from the list.
+        if (sub.unsupported.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded,
+                    size: 16, color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_unsupportedNote(s, sub.unsupported),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -752,7 +782,7 @@ class _ServerTile extends StatelessWidget {
       leading: country == null ? null : FlagChip(country),
       backdrop: country == null ? null : FlagBackdrop(country),
       title: label.title,
-      subtitle: '${profile.summary} · ${profile.server}',
+      subtitle: [?profile.description, profile.summary, profile.server].join(' · '),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

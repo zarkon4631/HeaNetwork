@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/app.dart';
 import 'package:heanetwork/core/config/config_builder.dart';
 import 'package:heanetwork/core/models/panel_routing.dart';
+import 'package:heanetwork/core/models/profile.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/services/app_catalog.dart';
 import 'package:heanetwork/core/services/clash_api.dart';
@@ -437,6 +438,24 @@ void main() {
       await pumpApp(tester, state, size: desktop);
       expect(find.text('Подключено без правил маршрутизации'), findsOneWidget);
       expect(find.textContaining('parse rule[5]'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
+    testWidgets('servers left out of a subscription are named under it, a description under its server',
+        (tester) async {
+      final state = makeState();
+      state.settings.locale = 'ru';
+      state.subscriptions.single.unsupported = const [
+        SkippedServer('NL · MASQUE', 'protocol:masque'),
+        SkippedServer('DE · Drive', 'transport:xdrive'),
+      ];
+      state.profiles.first.description = 'Для мобильной сети';
+      await pumpApp(tester, state, size: desktop);
+      expect(
+          find.text('Не показаны: NL · MASQUE (протокол MASQUE), DE · Drive (транспорт XDRIVE). '
+              'Ядро приложения с ними не работает.'),
+          findsOneWidget);
+      expect(find.textContaining('Для мобильной сети · VLESS'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }, variant: variant);
 

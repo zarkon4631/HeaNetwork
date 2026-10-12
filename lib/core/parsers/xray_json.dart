@@ -96,22 +96,62 @@ Map<String, String> _streamParams(Map<String, dynamic> stream) {
   return p;
 }
 
-String? _salamanderPassword(Map<String, dynamic> stream) {
+/// The settings of every UDP mask of one [type] in the stream's finalmask.
+Iterable<Map<String, dynamic>> _udpMasks(Map<String, dynamic> stream, String type) sync* {
   final udp = _map(stream['finalmask'])?['udp'];
-  if (udp is! List) return null;
+  if (udp is! List) return;
   for (final mask in udp) {
-    if (mask is Map && mask['type'] == 'salamander') {
-      final pw = _str(_map(mask['settings'])?['password']);
-      if (pw.isNotEmpty) return pw;
+    if (mask is Map && mask['type'] == type) {
+      yield _map(mask['settings']) ?? const {};
     }
+  }
+}
+
+/// Hysteria 2 obfuscation, which Xray writes as a `salamander` mask. With a
+/// `packetSize` range it is the gecko variant: packets padded to that size.
+Map<String, dynamic>? _hysteriaObfs(Map<String, dynamic> stream) {
+  for (final settings in _udpMasks(stream, 'salamander')) {
+    final password = _str(settings['password']);
+    if (password.isEmpty) continue;
+    final size =
+        RegExp(r'^(\d+)-(\d+)$').firstMatch(_str(settings['packetSize']).trim());
+    return {
+      'type': size == null ? 'salamander' : 'gecko',
+      'password': password,
+      if (size != null) 'min_packet_size': int.parse(size.group(1)!),
+      if (size != null) 'max_packet_size': int.parse(size.group(2)!),
+    };
   }
   return null;
 }
 
+/// Port hopping: a `udphop` mask since Xray 26.9.9, `quicParams.udpHop`
+/// before it. The interval is in seconds, a number or a range.
+void _applyPortHopping(Map<String, dynamic> out, Map<String, dynamic> stream) {
+  final mask = _udpMasks(stream, 'udphop').lastOrNull;
+  final legacy = _map(_map(_map(stream['finalmask'])?['quicParams'])?['udpHop']);
+  final ports = hopPortRanges([_str(mask?['remotePorts'] ?? legacy?['ports'])]);
+  if (ports.isEmpty) return;
+  out['server_ports'] = ports;
+  final interval = RegExp(r'^(\d+)(?:-(\d+))?$')
+      .firstMatch(_str(mask?['interval'] ?? legacy?['interval']).trim());
+  if (interval == null) return;
+  out['hop_interval'] = '${interval.group(1)}s';
+  final upper = interval.group(2);
+  if (upper != null && upper != interval.group(1)) out['hop_interval_max'] = '${upper}s';
+}
+
+/// Outbounds every Xray config has next to the server itself.
+const _plumbing = {'freedom', 'blackhole', 'dns', 'loopback'};
+
 /// Converts one Xray-core config, as served by a 3x-ui JSON subscription,
 /// into a profile. Only the proxy outbound is taken: routing, DNS and
 /// inbounds of the source config belong to that client, not to this one.
-/// Returns null when there is no outbound this app can use.
+///
+/// Returns null when the config names no server at all, and throws
+/// [UnsupportedException] when it names one the core cannot connect to
+/// (MASQUE, the XDRIVE transport): that server is skipped, and no other
+/// outbound of the config is taken in its place.
 ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
   final outbounds = (config['outbounds'] as List? ?? const [])
       .whereType<Map>()
@@ -121,10 +161,17 @@ ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
     'vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http', 'hysteria',
     'wireguard',
   };
-  final candidates = outbounds.where((o) => supported.contains(o['protocol']));
-  if (candidates.isEmpty) return null;
-  final o = candidates.firstWhere((o) => o['tag'] == 'proxy',
-      orElse: () => candidates.first);
+  bool usable(Map<String, dynamic> o) => supported.contains(o['protocol']);
+  final o = outbounds.where((o) => o['tag'] == 'proxy').firstOrNull ??
+      outbounds.where(usable).firstOrNull ??
+      outbounds
+          .where((o) => o['protocol'] is String && !_plumbing.contains(o['protocol']))
+          .firstOrNull;
+  if (o == null) return null;
+  if (!usable(o)) {
+    if (o['protocol'] is! String || _plumbing.contains(o['protocol'])) return null;
+    throw UnsupportedException('protocol:${o['protocol']}');
+  }
 
   final protocol = o['protocol'] as String;
   final settings = _map(o['settings']) ?? const {};
@@ -172,9 +219,12 @@ ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
   final user = _first(endpoint['users']) ?? endpoint;
   final host = _str(endpoint['address']);
   final port = _int(endpoint['port']);
+  final params = _streamParams(stream);
+  // A transport the core does not have is named before anything else is
+  // asked of the config: XDRIVE, for one, needs no address at all.
+  if (protocol != 'hysteria') transportFromParams(params);
   if (host.isEmpty || port == 0) return null;
 
-  final params = _streamParams(stream);
   final out = <String, dynamic>{'server': host, 'server_port': port};
   String type;
 
@@ -221,8 +271,9 @@ ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
         type = Protocol.hysteria2;
         out['type'] = 'hysteria2';
         out['password'] = auth;
-        final obfs = _salamanderPassword(stream);
-        if (obfs != null) out['obfs'] = {'type': 'salamander', 'password': obfs};
+        final obfs = _hysteriaObfs(stream);
+        if (obfs != null) out['obfs'] = obfs;
+        _applyPortHopping(out, stream);
       } else {
         type = Protocol.hysteria;
         out['type'] = 'hysteria';

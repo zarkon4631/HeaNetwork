@@ -52,6 +52,7 @@ ProxyProfile parseShadowsocks(String link) {
     type: Protocol.shadowsocks,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 
@@ -77,20 +78,19 @@ ProxyProfile parseHysteria2(String link) {
   };
 
   // Port hopping: `host:443,20000-30000` or `?mport=20000-30000`.
-  final hop = <String>[
-    ...l.portSpec.split(',').skip(1),
-    ...splitList(l.q('mport')),
-  ].where((e) => e.isNotEmpty).map((e) {
-    final r = e.replaceAll('-', ':');
-    return r.contains(':') ? r : '$r:$r';
-  }).toList();
+  final hop = hopPortRanges([...l.portSpec.split(',').skip(1), l.q('mport') ?? '']);
   if (hop.isNotEmpty) out['server_ports'] = hop;
 
   final obfs = l.q('obfs');
   if (obfs != null && obfs != 'none') {
+    // Gecko is salamander with every packet padded to a size from a range.
+    final min = int.tryParse(l.q('minPacketSize') ?? '');
+    final max = int.tryParse(l.q('maxPacketSize') ?? '');
     out['obfs'] = {
       'type': obfs,
       'password': l.q('obfs-password') ?? l.q('obfsParam') ?? '',
+      if (obfs == 'gecko' && min != null) 'min_packet_size': min,
+      if (obfs == 'gecko' && max != null) 'max_packet_size': max,
     };
   }
   final up = int.tryParse(l.q('up') ?? l.q('upmbps') ?? '');
@@ -103,6 +103,7 @@ ProxyProfile parseHysteria2(String link) {
     type: Protocol.hysteria2,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 
@@ -135,6 +136,7 @@ ProxyProfile parseHysteria(String link) {
     type: Protocol.hysteria,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 
@@ -170,6 +172,7 @@ ProxyProfile parseTuic(String link) {
     type: Protocol.tuic,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 

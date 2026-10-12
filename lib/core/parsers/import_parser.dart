@@ -7,7 +7,7 @@ import 'v2ray_links.dart';
 import 'wireguard_conf.dart';
 import 'xray_json.dart';
 
-export 'link_utils.dart' show LinkParseException;
+export 'link_utils.dart' show LinkParseException, UnsupportedException;
 
 class ImportResult {
   ImportResult({List<ProxyProfile>? profiles, List<String>? errors, this.subscriptionUrl})
@@ -18,6 +18,9 @@ class ImportResult {
 
   /// One message per entry that could not be imported.
   final List<String> errors;
+
+  /// Those of them that are servers the core cannot connect to.
+  final List<SkippedServer> skipped = [];
 
   /// Set when the text was a single http(s) URL, i.e. a subscription.
   final String? subscriptionUrl;
@@ -139,11 +142,23 @@ ImportResult _fromJson(Object? json) {
   ];
   if (xrayConfigs.isNotEmpty) {
     for (final config in xrayConfigs) {
-      final p = profileFromXrayConfig(Map<String, dynamic>.from(config as Map));
-      if (p == null) {
-        result.errors.add('unsupported Xray outbound');
-      } else {
-        result.profiles.add(p);
+      final map = Map<String, dynamic>.from(config as Map);
+      final name = '${map['remarks'] ?? ''}'.trim();
+      // One server the app cannot use must not cost the rest of the list.
+      try {
+        final p = profileFromXrayConfig(map);
+        if (p == null) {
+          result.errors.add('unsupported Xray outbound');
+        } else {
+          result.profiles.add(p);
+        }
+      } on UnsupportedException catch (e) {
+        result.errors.add(name.isEmpty ? e.message : '$name: ${e.message}');
+        result.skipped.add(SkippedServer(name, e.what));
+      } on LinkParseException catch (e) {
+        result.errors.add(name.isEmpty ? e.message : '$name: ${e.message}');
+      } on Object catch (e) {
+        result.errors.add(name.isEmpty ? '$e' : '$name: $e');
       }
     }
     return result;
@@ -163,6 +178,14 @@ ImportResult _fromJson(Object? json) {
     result.errors.add('JSON does not contain supported sing-box outbounds');
   }
   return result;
+}
+
+String _linkName(String link) {
+  try {
+    return RawLink.parse(link).name;
+  } on LinkParseException {
+    return '';
+  }
 }
 
 /// Parses clipboard text, a file or a subscription body: share links (one
@@ -204,6 +227,9 @@ ImportResult parseImportText(String input, {bool allowBase64 = true}) {
     if (RegExp(r'^https?://', caseSensitive: false).hasMatch(line)) continue;
     try {
       result.profiles.add(parseLink(line));
+    } on UnsupportedException catch (e) {
+      result.errors.add(e.message);
+      result.skipped.add(SkippedServer(_linkName(line), e.what));
     } on LinkParseException catch (e) {
       result.errors.add(e.message);
     } on Object catch (e) {

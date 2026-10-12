@@ -25,6 +25,10 @@ enum SubscriptionError {
 
   /// The panel requires a device id and none was sent.
   deviceIdRequired,
+
+  /// Every server of the subscription needs something the core does not
+  /// have; the message lists what, as `protocol:masque, transport:xdrive`.
+  unsupported,
 }
 
 class SubscriptionResult {
@@ -41,6 +45,7 @@ class SubscriptionResult {
     this.announce,
     this.routing,
     this.skipped = 0,
+    this.unsupported = const [],
   });
 
   /// Routing rules from the `Routing` header (Happ format), if the panel
@@ -64,6 +69,9 @@ class SubscriptionResult {
 
   /// Entries of the body that were not usable.
   final int skipped;
+
+  /// Those of them that are servers the core cannot connect to.
+  final List<SkippedServer> unsupported;
 }
 
 /// `upload=1; download=2; total=3; expire=1700000000`
@@ -137,6 +145,11 @@ Future<SubscriptionResult> fetchSubscription(
 
     final parsed = parseImportText(utf8.decode(res.bodyBytes, allowMalformed: true));
     if (parsed.profiles.isEmpty) {
+      if (parsed.skipped.isNotEmpty) {
+        throw SubscriptionException(
+            {for (final e in parsed.skipped) e.reason}.join(', '),
+            code: SubscriptionError.unsupported);
+      }
       throw SubscriptionException(parsed.errors.isEmpty
           ? 'the subscription is empty'
           : parsed.errors.first);
@@ -159,6 +172,7 @@ Future<SubscriptionResult> fetchSubscription(
       announce: decodeHeaderText(h['announce']),
       routing: PanelRouting.parseLink(h['routing']),
       skipped: parsed.errors.length,
+      unsupported: parsed.skipped,
     );
   } finally {
     if (client == null) c.close();

@@ -3,6 +3,14 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.10
+
+- Совместимость с 3x-ui 3.10. Протокол MASQUE и транспорт XDRIVE ядро приложения пока не поддерживает: такие серверы теперь названы под подпиской вместе с причиной, а не пропадают молча. Раньше один сервер с XDRIVE в JSON-подписке не давал обновить подписку целиком.
+- Hysteria 2 из JSON-подписки: смена портов (маска udphop и прежняя запись) и обфускация gecko. Gecko читается и из ссылок.
+- Описание сервера, которое панель дописывает к имени, показывается под именем сервера, а не внутри него.
+
+English: ready for 3x-ui 3.10. MASQUE servers and the XDRIVE transport, which the core does not have yet, are named under the subscription instead of vanishing, and one XDRIVE server no longer fails a whole JSON subscription; Hysteria 2 port hopping and gecko obfuscation are read from JSON subscriptions; a host's description is shown under the server name, not inside it.
+
 ## 1.0.9
 
 - Режим VPN на Windows сам переходит на сетевой стек gVisor, если на обычном туннель не принимает соединения. Так бывает, когда файрвол или антивирус блокирует входящие подключения (например, Portmaster делает это по умолчанию): раньше приложение показывало «Подключено», а ничего не работало. Проверка занимает доли секунды; переход запоминается и показывается на главном экране.

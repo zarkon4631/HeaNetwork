@@ -52,6 +52,7 @@ class ProxyProfile {
     required this.type,
     required this.outbound,
     this.link,
+    this.description,
     this.subscriptionId,
     this.latencyMs,
   }) : id = id ?? newId();
@@ -61,6 +62,10 @@ class ProxyProfile {
   final String type;
   Map<String, dynamic> outbound;
   String? link;
+
+  /// What the panel says about the server next to its name ("Wi-Fi", "for
+  /// mobile networks"); shown under the name.
+  String? description;
   String? subscriptionId;
 
   /// Last measured delay; null = never tested, -1 = failed.
@@ -146,6 +151,7 @@ class ProxyProfile {
         'type': type,
         'outbound': outbound,
         if (link != null) 'link': link,
+        if (description != null) 'description': description,
         if (subscriptionId != null) 'subscriptionId': subscriptionId,
         if (latencyMs != null) 'latencyMs': latencyMs,
       };
@@ -156,9 +162,25 @@ class ProxyProfile {
         type: j['type'] as String? ?? '',
         outbound: Map<String, dynamic>.from(j['outbound'] as Map? ?? const {}),
         link: j['link'] as String?,
+        description: j['description'] as String?,
         subscriptionId: j['subscriptionId'] as String?,
         latencyMs: (j['latencyMs'] as num?)?.toInt(),
       );
+}
+
+/// A server that was read correctly but left out, because the core has no
+/// such protocol or transport. [reason] is `protocol:masque`,
+/// `transport:xdrive` and the like.
+class SkippedServer {
+  const SkippedServer(this.name, this.reason);
+
+  final String name;
+  final String reason;
+
+  Map<String, dynamic> toJson() => {'name': name, 'reason': reason};
+
+  factory SkippedServer.fromJson(Map<String, dynamic> j) =>
+      SkippedServer('${j['name'] ?? ''}', '${j['reason'] ?? ''}');
 }
 
 class Subscription {
@@ -177,7 +199,9 @@ class Subscription {
     this.announce,
     this.collapsed = false,
     this.routing,
-  }) : id = id ?? newId();
+    List<SkippedServer>? unsupported,
+  })  : id = id ?? newId(),
+        unsupported = unsupported ?? [];
 
   final String id;
   String name;
@@ -186,6 +210,10 @@ class Subscription {
 
   /// Routing rules the panel sends with the subscription (`Routing` header).
   PanelRouting? routing;
+
+  /// Servers of the last update that are not in the list, because the core
+  /// has no such protocol or transport.
+  List<SkippedServer> unsupported;
 
   /// Folded in the list: only the header shows, the servers are hidden.
   bool collapsed;
@@ -228,6 +256,8 @@ class Subscription {
         if (announce != null) 'announce': announce,
         if (collapsed) 'collapsed': true,
         if (routing != null) 'routing': routing!.toJson(),
+        if (unsupported.isNotEmpty)
+          'unsupported': [for (final e in unsupported) e.toJson()],
       };
 
   factory Subscription.fromJson(Map<String, dynamic> j) => Subscription(
@@ -247,5 +277,9 @@ class Subscription {
         routing: j['routing'] is Map
             ? PanelRouting.fromProfile(Map<String, dynamic>.from(j['routing'] as Map))
             : null,
+        unsupported: [
+          for (final e in j['unsupported'] as List? ?? const [])
+            if (e is Map) SkippedServer.fromJson(Map<String, dynamic>.from(e)),
+        ],
       );
 }

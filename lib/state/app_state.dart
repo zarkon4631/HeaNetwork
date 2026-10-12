@@ -102,6 +102,7 @@ class ImportOutcome {
     this.added = 0,
     this.subscription,
     this.errors = const [],
+    this.unsupported = const [],
     this.failure,
     this.routing,
   });
@@ -114,6 +115,9 @@ class ImportOutcome {
 
   /// One message per entry that was skipped.
   final List<String> errors;
+
+  /// Those of them that are servers the core cannot connect to.
+  final List<SkippedServer> unsupported;
 
   /// Set when the whole import failed (a subscription could not be loaded).
   final Object? failure;
@@ -855,7 +859,10 @@ class AppState extends ChangeNotifier {
     if (parsed.subscriptionUrl != null) {
       try {
         final sub = await addSubscription(parsed.subscriptionUrl!);
-        return ImportOutcome(added: profilesOf(sub.id).length, subscription: sub);
+        return ImportOutcome(
+            added: profilesOf(sub.id).length,
+            subscription: sub,
+            unsupported: sub.unsupported);
       } on Object catch (e) {
         return ImportOutcome(failure: e);
       }
@@ -864,7 +871,10 @@ class AppState extends ChangeNotifier {
       _addProfiles(parsed.profiles);
       _profilesChanged();
     }
-    return ImportOutcome(added: parsed.profiles.length, errors: parsed.errors);
+    return ImportOutcome(
+        added: parsed.profiles.length,
+        errors: parsed.errors,
+        unsupported: parsed.skipped);
   }
 
   void addProfile(ProxyProfile p) {
@@ -985,6 +995,7 @@ class AppState extends ChangeNotifier {
         type: p.type,
         outbound: p.outbound,
         link: p.link,
+        description: p.description,
         subscriptionId: sub.id,
         latencyMs: before?.latencyMs,
       ));
@@ -1007,7 +1018,8 @@ class AppState extends ChangeNotifier {
       ..updateIntervalHours = result.updateIntervalHours
       ..supportUrl = result.supportUrl
       ..webPageUrl = result.webPageUrl
-      ..announce = result.announce;
+      ..announce = result.announce
+      ..unsupported = List.of(result.unsupported);
 
     // The panel's routing rules travel with the subscription: no header
     // means the administrator took them away.

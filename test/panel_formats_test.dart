@@ -1,4 +1,4 @@
-// What a 3x-ui panel (v3.9) actually emits, as read from its source:
+// What a 3x-ui panel (v3.9 and v3.10) actually emits, as read from its source:
 // AmneziaWG as `vpn://<base64url of the .conf>`, fragmentation settings in
 // the `fm` parameter, extra link parameters, and JSON subscriptions made of
 // whole Xray configs. Each case is also fed to the real core when present.
@@ -433,6 +433,254 @@ void main() {
       ]));
       expect(r.profiles, isEmpty);
       expect(r.errors, isNotEmpty);
+    });
+  });
+
+  // What 3x-ui 3.10.0 (Xray-core 26.10.10) changed, as its own tests state
+  // it: MASQUE and XDRIVE travel only in the JSON subscription, port hopping
+  // is a `udphop` mask, and Hysteria links carry the host's description.
+  group('3x-ui 3.10', () {
+    /// A config the way the panel orders it: the server first, then the
+    /// outbounds every config gets.
+    Map<String, dynamic> panelConfig(String remark, Map<String, dynamic> proxy,
+            {List<Map<String, dynamic>> extra = const []}) =>
+        {
+          'remarks': remark,
+          'outbounds': [
+            {'tag': 'proxy', ...proxy},
+            ...extra,
+            {'tag': 'direct', 'protocol': 'freedom', 'settings': {}},
+            {'tag': 'block', 'protocol': 'blackhole'},
+          ],
+        };
+
+    final masque = <String, dynamic>{
+      'protocol': 'masque',
+      'settings': {'address': '203.0.113.9', 'port': 8443},
+      'streamSettings': {
+        'network': 'masque',
+        'security': 'tls',
+        'masqueSettings': {
+          'path': '/.well-known/masque/ip/*/*/',
+          'user': 'ivy@example.test',
+          'pass': 'pw-ivy',
+        },
+        'tlsSettings': {
+          'serverName': 'masque.example.test',
+          'alpn': ['h3'],
+          'fingerprint': 'chrome',
+        },
+      },
+    };
+    final xdrive = <String, dynamic>{
+      'protocol': 'vless',
+      'settings': {
+        'address': '203.0.113.12',
+        'port': 443,
+        'id': uuid,
+        'encryption': 'none',
+        'level': 8,
+      },
+      'streamSettings': {
+        'network': 'xdrive',
+        'security': 'none',
+        'xdriveSettings': {
+          'service': 'Google Drive',
+          'remoteFolder': 'xray-tunnel',
+          'secrets': ['id', 'secret', 'token'],
+        },
+      },
+    };
+
+    Map<String, dynamic> hysteria(Map<String, dynamic> finalmask) => {
+          'protocol': 'hysteria',
+          'settings': {'version': 2, 'address': '203.0.113.10', 'port': 443},
+          'streamSettings': {
+            'network': 'hysteria',
+            'security': 'tls',
+            'tlsSettings': {
+              'serverName': 'hy.example.test',
+              'alpn': ['h3'],
+            },
+            'hysteriaSettings': {'version': 2, 'auth': 'a'},
+            'finalmask': finalmask,
+          },
+        };
+
+    test('a server the core has no protocol or transport for is left out by name', () {
+      final r = parseImportText(jsonEncode([
+        xraySubscription.first,
+        panelConfig('NL · MASQUE', masque),
+        panelConfig('DE · Drive', xdrive),
+        xraySubscription[5],
+      ]));
+      // One such server used to fail the whole subscription.
+      expect(r.profiles.map((p) => p.name), ['NL · Reality', 'HY2']);
+      expect([for (final e in r.skipped) '${e.name} / ${e.reason}'],
+          ['NL · MASQUE / protocol:masque', 'DE · Drive / transport:xdrive']);
+      expect(r.errors, hasLength(2));
+    });
+
+    test('another outbound of the same config is not taken for the server', () {
+      // An administrator can add outbounds of their own to every config.
+      final r = parseImportText(jsonEncode([
+        panelConfig('NL · MASQUE', masque, extra: [
+          {
+            'tag': 'warp',
+            'protocol': 'socks',
+            'settings': {'address': '127.0.0.1', 'port': 40000},
+          },
+        ]),
+      ]));
+      expect(r.profiles, isEmpty);
+      expect(r.skipped.single.reason, 'protocol:masque');
+    });
+
+    test('port hopping arrives as a udphop mask, or the way older panels wrote it', () async {
+      final r = parseImportText(jsonEncode([
+        panelConfig('new', hysteria({
+          'udp': [
+            {
+              'type': 'salamander',
+              'settings': {'password': 'host-pass'},
+            },
+            {
+              'type': 'udphop',
+              'settings': {
+                'mode': 'intervalRemote',
+                'remotePorts': '20000-30000',
+                'interval': '5-10',
+              },
+            },
+          ],
+        })),
+        panelConfig('old', hysteria({
+          'quicParams': {
+            'udpHop': {'ports': '20000-20100,40000', 'interval': 30},
+          },
+        })),
+        panelConfig('none', hysteria({
+          'udp': [
+            {
+              'type': 'xdns',
+              'settings': {
+                'domains': [
+                  {'names': ['t.example.test'], 'type': 16},
+                ],
+              },
+            },
+          ],
+        })),
+      ]));
+      expect(r.errors, isEmpty);
+      final [fresh, legacy, plain] = r.profiles;
+      expect(fresh.outbound['server_ports'], ['20000:30000']);
+      expect(fresh.outbound['hop_interval'], '5s');
+      expect(fresh.outbound['hop_interval_max'], '10s');
+      expect(fresh.outbound['obfs'], {'type': 'salamander', 'password': 'host-pass'});
+      expect(legacy.outbound['server_ports'], ['20000:20100', '40000:40000']);
+      expect(legacy.outbound['hop_interval'], '30s');
+      expect(legacy.outbound.containsKey('hop_interval_max'), isFalse);
+      expect(plain.outbound.containsKey('server_ports'), isFalse);
+      for (final p in r.profiles) {
+        await coreAccepts(p, 'hop ${p.name}');
+      }
+    });
+
+    test('a salamander mask with a packet size is gecko, in a link and in a config', () async {
+      const want = {
+        'type': 'gecko',
+        'password': 'pw-gecko',
+        'min_packet_size': 512,
+        'max_packet_size': 1200,
+      };
+      final link = parseLink('hysteria2://secret@203.0.113.1:443?security=tls&obfs=gecko'
+          '&obfs-password=pw-gecko&minPacketSize=512&maxPacketSize=1200#geo');
+      expect(link.outbound['obfs'], want);
+      final config = parseImportText(jsonEncode(panelConfig('geo', hysteria({
+        'udp': [
+          {
+            'type': 'salamander',
+            'settings': {'password': 'pw-gecko', 'packetSize': '512-1200'},
+          },
+        ],
+      })))).profiles.single;
+      expect(config.outbound['obfs'], want);
+      await coreAccepts(link, 'gecko link');
+      await coreAccepts(config, 'gecko config');
+    });
+
+    test('the description of a host is not part of the server name', () {
+      // base64("Wi-Fi") after a literal "?serverDescription=" in the fragment.
+      final hy = parseLink('hysteria2://secret@hy.example.com:443?security=tls'
+          '&sni=hy.example.com#Poland?serverDescription=V2ktRmk=');
+      expect(hy.name, 'Poland');
+      expect(hy.description, 'Wi-Fi');
+
+      final vless = parseLink('${sampleLinks['vless-reality-vision']!.split('#').first}'
+          '#%F0%9F%87%B5%F0%9F%87%B1%20Warsaw'
+          '?serverDescription=0JTQu9GPIExURSAo0LHQtdC70YvQtSDRgdC/0LjRgdC60Lgp');
+      expect(vless.name, '🇵🇱 Warsaw');
+      expect(vless.description, 'Для LTE (белые списки)');
+
+      // What is not base64 was a name all along, and the panel escapes it.
+      final literal = parseLink('${sampleLinks['trojan-tls']!.split('#').first}'
+          '#name%3FserverDescription%3Dnot%20base64!!');
+      expect(literal.name, 'name?serverDescription=not base64!!');
+      expect(literal.description, isNull);
+
+      final vmess = parseLink('vmess://${base64.encode(utf8.encode(jsonEncode({
+            'v': '2', 'ps': 'Berlin', 'add': 'example.com', 'port': '443', 'id': uuid,
+            'net': 'ws', 'tls': 'tls', 'serverDescription': 'Berlin premium',
+          })))}');
+      expect(vmess.name, 'Berlin');
+      expect(vmess.description, 'Berlin premium');
+
+      expect(ProxyProfile.fromJson(hy.toJson()).description, 'Wi-Fi');
+    });
+
+    test('checks a host adds to TLS do not get in the way', () async {
+      const echList = 'AE3+DQBJAAAgACCz2bbrKOZkumhoVB/1sXNUUFz13LysqGEiREd3rWeJCgAMAAEA'
+          'AQABAAIAAQADABJwdWJsaWMuZXhhbXBsZS5jb20AAA==';
+      final p = parseImportText(jsonEncode(panelConfig('host', {
+        'protocol': 'vless',
+        'settings': {
+          'address': 'cdn.example.com',
+          'port': 443,
+          'id': uuid,
+          'encryption': 'none',
+          'level': 8,
+        },
+        'streamSettings': {
+          'network': 'ws',
+          'security': 'tls',
+          'wsSettings': {'path': '/ws', 'host': 'cdn.example.com'},
+          'tlsSettings': {
+            'serverName': 'cdn.example.com',
+            'alpn': ['http/1.1'],
+            'fingerprint': 'chrome',
+            'echConfigList': echList,
+            'verifyPeerCertByName': 'origin.example.com',
+            'pinnedPeerCertSha256':
+                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          },
+        },
+      }))).profiles.single;
+      final tls = p.outbound['tls'] as Map;
+      expect(tls['alpn'], ['http/1.1']);
+      expect((tls['ech'] as Map)['config'], contains(echList));
+      // The address stays "none": it is not an encryption the core knows.
+      expect(p.outbound.containsKey('encryption'), isFalse);
+      await coreAccepts(p, 'host tls');
+    });
+
+    test('shadowsocks 2022 on the cipher the panel moves inbounds to', () async {
+      final p = parseLink('ss://${base64Url.encode(utf8.encode('2022-blake3-aes-256-gcm:'
+              'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=:'
+              'ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=')).replaceAll('=', '')}'
+          '@203.0.113.11:8388#ss2022');
+      expect(p.outbound['method'], '2022-blake3-aes-256-gcm');
+      await coreAccepts(p, 'ss 2022 aes-256');
     });
   });
 }

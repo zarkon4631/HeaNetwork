@@ -194,6 +194,22 @@ void main() {
     links['vless-ws-tls'] =
         'vless://$uuid@127.0.0.1:$p?type=ws&path=%2Fws&host=localhost&$insecureTls#w';
 
+    // 3x-ui 3.10 keeps the Vision flow wherever VLESS encryption is on,
+    // whatever the transport; before it did so on raw TCP and XHTTP only.
+    final (encPriv, encPub) = await keypair('reality-keypair');
+    p = await tcpIn({
+      'type': 'vless',
+      'users': [
+        {'uuid': uuid, 'flow': 'xtls-rprx-vision'},
+      ],
+      'decryption': 'mlkem768x25519plus.native.600s.$encPriv',
+      'tls': tls(),
+      'transport': {'type': 'ws', 'path': '/enc'},
+    });
+    links['vless-ws-encryption-vision'] =
+        'vless://$uuid@127.0.0.1:$p?type=ws&path=%2Fenc&host=localhost&$insecureTls'
+        '&encryption=mlkem768x25519plus.native.0rtt.$encPub&flow=xtls-rprx-vision#e';
+
     p = await tcpIn({
       'type': 'vless',
       'users': vlessUsers,
@@ -303,6 +319,59 @@ void main() {
     });
     links['hysteria2'] = 'hysteria2://hy2-pass@127.0.0.1:$p?sni=localhost'
         '&insecure=1&obfs=salamander&obfs-password=obfs-pass#hy2';
+
+    // The way a 3x-ui 3.10 JSON subscription describes a server: gecko as a
+    // salamander mask with a packet size, port hopping as a udphop mask.
+    p = await udpIn({
+      'type': 'hysteria2',
+      'users': [
+        {'password': 'hy2-gecko'},
+      ],
+      'obfs': {
+        'type': 'gecko',
+        'password': 'gecko-pass',
+        'min_packet_size': 512,
+        'max_packet_size': 1200,
+      },
+      'tls': tls(alpn: ['h3']),
+    });
+    extraProfiles['hysteria2-gecko-hop'] = parseImportText(jsonEncode({
+      'remarks': 'hy2 gecko',
+      'outbounds': [
+        {
+          'tag': 'proxy',
+          'protocol': 'hysteria',
+          'settings': {'version': 2, 'address': '127.0.0.1', 'port': p},
+          'streamSettings': {
+            'network': 'hysteria',
+            'security': 'tls',
+            'tlsSettings': {
+              'serverName': 'localhost',
+              'alpn': ['h3'],
+              'allowInsecure': true,
+            },
+            'hysteriaSettings': {'version': 2, 'auth': 'hy2-gecko'},
+            'finalmask': {
+              'udp': [
+                {
+                  'type': 'salamander',
+                  'settings': {'password': 'gecko-pass', 'packetSize': '512-1200'},
+                },
+                {
+                  'type': 'udphop',
+                  'settings': {
+                    'mode': 'intervalRemote',
+                    'remotePorts': '$p',
+                    'interval': '5-10',
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {'tag': 'direct', 'protocol': 'freedom'},
+      ],
+    })).profiles.single;
 
     p = await udpIn({
       'type': 'hysteria',

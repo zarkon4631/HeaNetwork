@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:heanetwork/core/models/profile.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/services/device_identity.dart';
 import 'package:heanetwork/core/services/lan_receiver.dart';
@@ -281,6 +282,81 @@ void main() {
       // The servers that were there stay usable.
       expect(state.profilesOf(sub.id), hasLength(1));
       expect(state.refreshingSubscriptions, isFalse);
+    });
+
+    // 3x-ui 3.10 serves MASQUE and XDRIVE only in its JSON subscription.
+    test('servers the core cannot reach are named on the subscription', () async {
+      Map<String, dynamic> config(String remark, Map<String, dynamic> proxy) => {
+            'remarks': remark,
+            'outbounds': [
+              {'tag': 'proxy', ...proxy},
+              {'tag': 'direct', 'protocol': 'freedom', 'settings': {}},
+            ],
+          };
+      final trojan = config('Trojan', {
+        'protocol': 'trojan',
+        'settings': {'address': 'tr.example.com', 'port': 443, 'password': 'p'},
+        'streamSettings': {
+          'network': 'tcp',
+          'security': 'tls',
+          'tlsSettings': {'serverName': 'tr.example.com'},
+        },
+      });
+      final masque = config('NL · MASQUE', {
+        'protocol': 'masque',
+        'settings': {'address': '203.0.113.9', 'port': 8443},
+        'streamSettings': {
+          'network': 'masque',
+          'security': 'tls',
+          'masqueSettings': {'user': 'ivy@example.test', 'pass': 'pw-ivy'},
+        },
+      });
+      var served = [trojan, masque];
+      final state = makeState(
+          populated: false,
+          subscriptionClient: MockClient((_) async =>
+              http.Response.bytes(utf8.encode(jsonEncode(served)), 200)));
+
+      final sub = await state.addSubscription('https://panel.example/json/abc');
+      expect(state.profilesOf(sub.id).map((p) => p.name), ['Trojan']);
+      expect([for (final e in sub.unsupported) '${e.name} / ${e.reason}'],
+          ['NL · MASQUE / protocol:masque']);
+      final stored =
+          Subscription.fromJson(jsonDecode(jsonEncode(sub.toJson())) as Map<String, dynamic>);
+      expect(stored.unsupported.single.name, 'NL · MASQUE');
+
+      // The administrator moves the server to a protocol the app has.
+      served = [trojan];
+      await state.refreshSubscription(sub);
+      expect(sub.unsupported, isEmpty);
+
+      // Nothing but such servers: it says which, and keeps what it had.
+      served = [masque];
+      await expectLater(
+          state.refreshSubscription(sub),
+          throwsA(isA<SubscriptionException>()
+              .having((e) => e.code, 'code', SubscriptionError.unsupported)
+              .having((e) => e.message, 'message', 'protocol:masque')));
+      expect(state.profilesOf(sub.id).map((p) => p.name), ['Trojan']);
+    });
+
+    test('what the panel says about a server stays with it through a refresh', () async {
+      final link = sampleLinks['vless-reality-vision']!;
+      final state = makeState(
+          populated: false,
+          subscriptionClient: panel([
+            ['$link?serverDescription=V2ktRmk='], // base64("Wi-Fi")
+            [link],
+          ]));
+      final sub = await state.addSubscription('https://panel.example/sub/abc');
+      final server = state.profilesOf(sub.id).single;
+      expect(server.name, 'VLESS Reality');
+      expect(server.description, 'Wi-Fi');
+
+      await state.refreshSubscription(sub);
+      final after = state.profilesOf(sub.id).single;
+      expect(after.id, server.id, reason: 'the same server, with or without a description');
+      expect(after.description, isNull);
     });
 
     test('settings survive with the new fields', () {

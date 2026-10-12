@@ -196,6 +196,7 @@ ProxyProfile parseWireGuardLink(String link) {
     type: amnezia == null ? Protocol.wireguard : Protocol.amneziawg,
     outbound: out,
     link: link,
+    description: l.description,
   );
 }
 
