@@ -20,77 +20,13 @@ import '../core/services/public_ip.dart';
 import '../core/services/storage.dart';
 import '../core/services/subscription_service.dart';
 import '../core/services/updater.dart';
+import '../core/models/route_traffic.dart';
 import '../platform/windows/system_proxy.dart';
 import '../platform/windows/win32.dart' as win32;
+import 'app_paths.dart';
 
-/// Where the app keeps its files and finds its bundled pieces.
-class AppPaths {
-  AppPaths({required this.support, this.corePath});
-
-  final Directory support;
-
-  /// Core executable (Windows only).
-  final String? corePath;
-
-  Directory get data => Directory('${support.path}${Platform.pathSeparator}data');
-  Directory get run => Directory('${support.path}${Platform.pathSeparator}run');
-  Directory get ruleSets =>
-      Directory('${support.path}${Platform.pathSeparator}rulesets');
-  Directory get downloads =>
-      Directory('${support.path}${Platform.pathSeparator}downloads');
-  File get proxyBackup =>
-      File('${run.path}${Platform.pathSeparator}system-proxy.json');
-  File get coreLog => File('${run.path}${Platform.pathSeparator}core.log');
-}
-
-/// How much of a session's traffic went through the VPN and how much went
-/// out directly, plus how many connections are open now.
-class RouteTraffic {
-  const RouteTraffic({
-    this.vpnUp = 0,
-    this.vpnDown = 0,
-    this.directUp = 0,
-    this.directDown = 0,
-    this.open = 0,
-  });
-
-  final int vpnUp;
-  final int vpnDown;
-  final int directUp;
-  final int directDown;
-  final int open;
-
-  int get vpn => vpnUp + vpnDown;
-  int get direct => directUp + directDown;
-
-  /// Adds what the [connections] carried since they were last [seen], and
-  /// updates [seen]. A connection goes "direct" when its chain ends at the
-  /// direct outbound, otherwise through the VPN.
-  RouteTraffic add(
-    List<({String id, List<String> chains, int up, int down})> connections,
-    Map<String, (int up, int down)> seen,
-  ) {
-    var vu = vpnUp, vd = vpnDown, du = directUp, dd = directDown;
-    final alive = <String>{};
-    for (final c in connections) {
-      alive.add(c.id);
-      final before = seen[c.id] ?? (0, 0);
-      final up = c.up > before.$1 ? c.up - before.$1 : 0;
-      final down = c.down > before.$2 ? c.down - before.$2 : 0;
-      seen[c.id] = (c.up, c.down);
-      if (c.chains.contains('direct')) {
-        du += up;
-        dd += down;
-      } else {
-        vu += up;
-        vd += down;
-      }
-    }
-    seen.removeWhere((id, _) => !alive.contains(id));
-    return RouteTraffic(
-        vpnUp: vu, vpnDown: vd, directUp: du, directDown: dd, open: connections.length);
-  }
-}
+export '../core/models/route_traffic.dart';
+export 'app_paths.dart';
 
 /// Thrown by [AppState.connect] when TUN mode needs administrator rights.
 class ElevationRequired implements Exception {}
@@ -534,73 +470,19 @@ class AppState extends ChangeNotifier {
       final mixedPort = await freeTcpPort(settings.mixedPort);
       final clashPort = await freeTcpPort();
       final secret = newApiSecret();
-      final config = configFor(profile,
-          clashPort: clashPort, clashSecret: secret, mixedPort: mixedPort);
+      // The config of this connection, as the settings are when it is asked
+      // for; [plain] leaves the routing rules out of it.
+      Map<String, dynamic> config({bool plain = false}) => configFor(profile,
+          clashPort: clashPort,
+          clashSecret: secret,
+          mixedPort: mixedPort,
+          plainRouting: plain);
+
       pendingRestart = false;
       _appliedFingerprint = _coreFingerprint();
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
-      _startingHere = true;
-      try {
-        try {
-          await core.start(config);
-          routingProblem = null;
-        } on CoreException catch (e) {
-          if (!isRoutingComplaint(e.message)) rethrow;
-          // The core will not start on these rules. A connection without
-          // them beats no connection at all: go on with what cannot be
-          // malformed, and say so.
-          routingProblem = e.message;
-          if (e.message.contains('rule-set')) unawaited(_renewRuleSets());
-          try {
-            await core.start(configFor(profile,
-                clashPort: clashPort,
-                clashSecret: secret,
-                mixedPort: mixedPort,
-                plainRouting: true));
-          } on Object {
-            routingProblem = null;
-            rethrow;
-          }
-        }
-      } finally {
-        _startingHere = false;
-      }
-
-      stackSwitched = false;
-      if (await _tunnelTakesNothing()) {
-        // The tunnel's default stack hands every TCP connection to Windows
-        // as an incoming one, and a firewall that blocks incoming
-        // connections (Portmaster does by default) then lets none through:
-        // connected, and nothing works. gVisor needs nothing from the
-        // system, so the core is started again on it.
-        final configured = settings.tunStack;
-        settings.tunStack = 'gvisor';
-        var better = false;
-        try {
-          await core.stop();
-          activeMode = settings.mode;
-          _startingHere = true;
-          try {
-            await core.start(configFor(profile,
-                clashPort: clashPort,
-                clashSecret: secret,
-                mixedPort: mixedPort,
-                plainRouting: routingProblem != null));
-          } finally {
-            _startingHere = false;
-          }
-          better = await tunnelCheck!();
-        } finally {
-          // Kept only when it helped; otherwise the choice stays the user's.
-          if (!better) settings.tunStack = configured;
-          _appliedFingerprint = _coreFingerprint();
-        }
-        if (better) {
-          stackSwitched = true;
-          configRevision++;
-          unawaited(store.saveSettings());
-        }
-      }
+      await _startDespiteRouting(config);
+      await _leaveDeafStack(config);
 
       if (isWindows && settings.mode == ConnectionMode.systemProxy) {
         systemProxy?.enable(mixedPort);
@@ -627,6 +509,70 @@ class AppState extends ChangeNotifier {
       if (status == CoreStatus.running) await _abandon();
     }
     notifyListeners();
+  }
+
+  /// Brings the core up for [connect], which tells this start apart from
+  /// one made by the home-screen widget or the quick settings tile.
+  Future<void> _startCore(Map<String, dynamic> config) async {
+    _startingHere = true;
+    try {
+      await core.start(config);
+    } finally {
+      _startingHere = false;
+    }
+  }
+
+  /// Starts the core with the routing rules, and without them when it will
+  /// not start on them: a connection without the rules beats no connection
+  /// at all. [routingProblem] then holds what the core objected to.
+  Future<void> _startDespiteRouting(
+      Map<String, dynamic> Function({bool plain}) config) async {
+    try {
+      await _startCore(config());
+      routingProblem = null;
+    } on CoreException catch (e) {
+      if (!isRoutingComplaint(e.message)) rethrow;
+      routingProblem = e.message;
+      if (e.message.contains('rule-set')) unawaited(_renewRuleSets());
+      try {
+        // What is left cannot be malformed.
+        await _startCore(config(plain: true));
+      } on Object {
+        routingProblem = null;
+        rethrow;
+      }
+    }
+  }
+
+  /// Moves a tunnel that takes no connections to gVisor.
+  ///
+  /// The tunnel's default stack hands every TCP connection to Windows as an
+  /// incoming one, and a firewall that blocks incoming connections
+  /// (Portmaster does by default) then lets none through: connected, and
+  /// nothing works. gVisor needs nothing from the system, so the core is
+  /// started again on it. The setting follows only when that helped;
+  /// otherwise the choice stays the user's.
+  Future<void> _leaveDeafStack(
+      Map<String, dynamic> Function({bool plain}) config) async {
+    stackSwitched = false;
+    if (!await _tunnelTakesNothing()) return;
+    final configured = settings.tunStack;
+    settings.tunStack = 'gvisor';
+    var better = false;
+    try {
+      await core.stop();
+      activeMode = settings.mode;
+      await _startCore(config(plain: routingProblem != null));
+      better = await tunnelCheck!();
+    } finally {
+      if (!better) settings.tunStack = configured;
+      _appliedFingerprint = _coreFingerprint();
+    }
+    if (better) {
+      stackSwitched = true;
+      configRevision++;
+      unawaited(store.saveSettings());
+    }
   }
 
   /// Takes down a connection that was only half made.

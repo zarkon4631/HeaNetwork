@@ -192,7 +192,7 @@ String _linkName(String link) {
 /// per line, optionally base64-wrapped), a WireGuard/AmneziaWG `.conf`, a
 /// sing-box JSON config, or a subscription URL.
 ImportResult parseImportText(String input, {bool allowBase64 = true}) {
-  final text = input.trim().replaceFirst('﻿', '');
+  final text = input.trim().replaceFirst('\uFEFF', '');
   if (text.isEmpty) return ImportResult();
 
   if (looksLikeWireGuardConf(text)) {
