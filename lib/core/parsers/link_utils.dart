@@ -37,6 +37,10 @@ String decodeComponent(String s) {
   }
 }
 
+/// The name a server goes by: its own, or its address when it has none.
+String nameOr(String name, String host, int port) =>
+    name.isNotEmpty ? name : '$host:$port';
+
 const _descriptionMark = '?serverDescription=';
 
 /// A share link split by hand. `Uri.parse` is avoided because it rejects

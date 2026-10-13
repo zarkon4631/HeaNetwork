@@ -233,8 +233,15 @@ class LatencyTester {
       elevated: elevated,
     )));
 
-    final process = await Process.start(
-        corePath, ['run', '-c', file.path, '-D', workDir.path, '--disable-color']);
+    final Process process;
+    try {
+      process = await Process.start(
+          corePath, ['run', '-c', file.path, '-D', workDir.path, '--disable-color']);
+    } on Object {
+      // No core to run: its config is not left lying about either.
+      await _discard(file);
+      rethrow;
+    }
     var exited = false;
     unawaited(process.exitCode.then((_) => exited = true));
     unawaited(process.stdout.drain<void>());
@@ -268,11 +275,15 @@ class LatencyTester {
       process.kill();
       await process.exitCode
           .timeout(const Duration(seconds: 3), onTimeout: () => -1);
-      try {
-        await file.delete();
-      } on FileSystemException {
-        // Left for the next run to overwrite.
-      }
+      await _discard(file);
+    }
+  }
+
+  static Future<void> _discard(File file) async {
+    try {
+      await file.delete();
+    } on FileSystemException {
+      // Still held by the core: a few kilobytes in the app's own folder.
     }
   }
 }

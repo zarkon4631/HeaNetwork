@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:tray_manager/tray_manager.dart';
@@ -121,12 +120,7 @@ class DesktopShell with WindowListener, TrayListener {
     }
   }
 
-  S get _s {
-    final locale = state.settings.locale;
-    final code =
-        locale == 'system' ? PlatformDispatcher.instance.locale.languageCode : locale;
-    return code == 'ru' ? S.ru : S.en;
-  }
+  S get _s => S.forSetting(state.settings.locale);
 
   Future<void> _refreshTray() async {
     final status = state.status;

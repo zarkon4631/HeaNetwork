@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 import '../core/config/config_builder.dart';
 import '../core/config/rule_values.dart';
@@ -14,13 +14,11 @@ import '../core/models/settings.dart';
 import '../core/parsers/import_parser.dart';
 import '../core/services/clash_api.dart';
 import '../core/services/core_controller.dart';
+import '../core/services/device_identity.dart';
 import '../core/services/latency_tester.dart';
 import '../core/services/public_ip.dart';
 import '../core/services/storage.dart';
 import '../core/services/subscription_service.dart';
-import 'package:http/http.dart' as http;
-
-import '../core/services/device_identity.dart';
 import '../core/services/updater.dart';
 import '../platform/windows/system_proxy.dart';
 import '../platform/windows/win32.dart' as win32;
@@ -200,8 +198,17 @@ class AppState extends ChangeNotifier {
   int totalUp = 0;
   int totalDown = 0;
 
-  /// Shown on the home screen until the next connection attempt.
+  /// Shown on the home screen until the next connection attempt: the core's
+  /// own words, or one of the two markers below, which the screen puts into
+  /// the user's language.
   String? error;
+
+  /// [error] when there is no server to connect to.
+  static const errorNoServer = 'no-server';
+
+  /// [error] when the core did not come up in time; the number of seconds
+  /// it was given follows.
+  static const errorStartTimeout = 'start-timeout:';
 
   /// Why this connection was made without the site rules and the panel's
   /// routing, in the core's words; null while they are in force.
@@ -420,10 +427,6 @@ class AppState extends ChangeNotifier {
 
   // ---- connect / disconnect --------------------------------------------
 
-  static String _newSecret() {
-    final r = Random.secure();
-    return List.generate(24, (_) => r.nextInt(16).toRadixString(16)).join();
-  }
 
   /// The core configuration for connecting through [profile] with the
   /// current settings and routing.
@@ -519,7 +522,7 @@ class AppState extends ChangeNotifier {
     error = null;
     final profile = selectedProfile;
     if (profile == null) {
-      error = 'no-server';
+      error = errorNoServer;
       notifyListeners();
       return;
     }
@@ -530,7 +533,7 @@ class AppState extends ChangeNotifier {
     try {
       final mixedPort = await freeTcpPort(settings.mixedPort);
       final clashPort = await freeTcpPort();
-      final secret = _newSecret();
+      final secret = newApiSecret();
       final config = configFor(profile,
           clashPort: clashPort, clashSecret: secret, mixedPort: mixedPort);
       pendingRestart = false;
@@ -609,7 +612,7 @@ class AppState extends ChangeNotifier {
     } on CoreCancelled {
       // Called off by the user: nothing went wrong, nothing to report.
     } on CoreStartTimeout catch (e) {
-      error = 'start-timeout:${e.limit.inSeconds}';
+      error = '$errorStartTimeout${e.limit.inSeconds}';
     } on CoreException catch (e) {
       error = e.message;
     } on Object catch (e) {

@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/widgets.dart';
 
 /// UI strings in Russian and English, side by side so a missing
@@ -12,11 +14,19 @@ class S {
   static S of(BuildContext context) =>
       Localizations.localeOf(context).languageCode == 'ru' ? ru : en;
 
+  /// The strings for the language chosen in the settings (`system`, `ru`,
+  /// `en`), for what has no [BuildContext] to ask: the tray menu, the
+  /// Android widget.
+  static S forSetting(String locale) {
+    final code =
+        locale == 'system' ? PlatformDispatcher.instance.locale.languageCode : locale;
+    return code == 'ru' ? ru : en;
+  }
+
   String _t(String r, String e) => _ru ? r : e;
 
   // ---- navigation
   String get navHome => _t('Главная', 'Home');
-  String get navServers => _t('Серверы', 'Servers');
   String get navRouting => _t('Маршруты', 'Routing');
   String get navSettings => _t('Настройки', 'Settings');
 
@@ -29,12 +39,10 @@ class S {
   String get close => _t('Закрыть', 'Close');
   String get copy => _t('Копировать', 'Copy');
   String get copied => _t('Скопировано', 'Copied');
-  String get apply => _t('Применить', 'Apply');
   String get search => _t('Поиск', 'Search');
   String get name => _t('Название', 'Name');
   String get ok => _t('Понятно', 'OK');
   String get refresh => _t('Обновить', 'Refresh');
-  String get later => _t('Позже', 'Later');
 
   // ---- home
   String get statusOff => _t('Отключено', 'Disconnected');
@@ -48,7 +56,6 @@ class S {
       'Добавьте сервер по ссылке, QR-коду или подписке',
       'Add a server from a link, a QR code or a subscription');
   String get addServer => _t('Добавить сервер', 'Add server');
-  String get currentServer => _t('Сервер', 'Server');
   String get mode => _t('Режим', 'Mode');
   String get modeProxy => _t('Системный прокси', 'System proxy');
   String get modeTun => _t('VPN (весь трафик)', 'VPN (all traffic)');
@@ -58,8 +65,6 @@ class S {
   String get modeTunHint => _t(
       'Весь трафик компьютера, включая игры и программы без поддержки прокси. Нужны права администратора.',
       'All traffic of this computer, including games and programs without proxy support. Needs administrator rights.');
-  String get download => _t('Загрузка', 'Download');
-  String get upload => _t('Отдача', 'Upload');
   String get sessionTraffic => _t('За сеанс', 'This session');
   String get routingSummaryAll => _t('Весь трафик через VPN', 'All traffic through VPN');
   String get routingSummarySelected =>
@@ -78,7 +83,6 @@ class S {
   String get routingSkippedHint => _t(
       'Ядро не приняло правила сайтов или маршрутизацию из панели, поэтому подключение установлено без них. Проверьте правила на странице «Маршруты» или сообщите администратору панели.',
       'The core would not take the site rules or the panel’s routing, so the connection was made without them. Check the rules on the Routing page or tell the panel’s administrator.');
-  String get connectionLost => _t('Соединение прервано', 'Connection lost');
   String get needAdminTitle => _t('Нужны права администратора', 'Administrator rights needed');
   String get needAdminBody => _t(
       'Режим VPN создаёт виртуальный сетевой адаптер, для этого Windows требует права администратора. Перезапустить HeaNetwork с повышенными правами?',
@@ -106,7 +110,6 @@ class S {
   String get subscriptionUrl => _t('Ссылка на подписку', 'Subscription URL');
   String get addManually => _t('Прокси вручную (SOCKS / HTTP)', 'Manual proxy (SOCKS / HTTP)');
   String get myServers => _t('Мои серверы', 'My servers');
-  String get testAll => _t('Проверить задержку', 'Test latency');
   String get clipboardEmpty => _t('Буфер обмена пуст', 'The clipboard is empty');
   String imported(int n) => _t(
       'Добавлено: $n ${_plural(n, 'сервер', 'сервера', 'серверов')}',
@@ -163,7 +166,6 @@ class S {
   String get latencyFailed => _t('нет ответа', 'no reply');
   String get subscriptionFailed =>
       _t('Не удалось загрузить подписку', 'Could not load the subscription');
-  String get proxyType => _t('Тип', 'Type');
   String get host => _t('Адрес', 'Host');
   String get port => _t('Порт', 'Port');
   String get username => _t('Логин (необязательно)', 'Username (optional)');
@@ -190,7 +192,6 @@ class S {
   String get appsNeedTun => _t(
       'В режиме «Системный прокси» правила действуют только на программы, которые им пользуются. Чтобы управлять всеми приложениями, включите режим VPN.',
       'In “System proxy” mode the rules only reach programs that use the proxy. Switch to VPN mode to control every application.');
-  String get addApp => _t('Добавить приложение', 'Add application');
   String get noAppRules => _t(
       'Правил пока нет. Все приложения следуют настройке «По умолчанию».',
       'No rules yet. Every application follows the default above.');
@@ -251,38 +252,6 @@ class S {
   String get fakeIpHint => _t(
       'Быстрее и без подмены адресов провайдером. Работает в режиме VPN',
       'Faster and immune to DNS tampering. Works in VPN mode');
-  String get secAntiDpi => _t('Защита от блокировок (DPI / ТСПУ)', 'Censorship resistance (DPI)');
-  String get antiDpiIntro => _t(
-      'Маскирует начало TLS-соединения, чтобы оборудование провайдера не распознало VPN. Reality, XHTTP и AmneziaWG настраиваются в самом сервере и работают всегда.',
-      'Disguises the start of the TLS connection so that provider equipment does not recognise the VPN. Reality, XHTTP and AmneziaWG come from the server profile and are always on.');
-  String get presetOff => _t('Выкл', 'Off');
-  String get presetBalanced => _t('Авто', 'Auto');
-  String get presetStrong => _t('Усиленная', 'Strong');
-  String get presetCustom => _t('Вручную', 'Custom');
-  String get presetOffHint =>
-      _t('Профиль сервера используется как есть', 'The server profile is used as is');
-  String get presetBalancedHint => _t(
-      'Разбиение TLS-записей и отпечаток браузера Chrome. Не замедляет соединение',
-      'TLS record splitting and a Chrome browser fingerprint. No slowdown');
-  String get presetStrongHint => _t(
-      'Дополнительно дробит TCP-пакеты и обрабатывает прямые соединения. Подключение может стать медленнее',
-      'Also splits TCP segments and treats direct connections. Connecting may get slower');
-  String get tlsRecordFragment => _t('Разбивать TLS-записи', 'Split TLS records');
-  String get tlsFragment => _t('Дробить TCP-пакеты', 'Split TCP segments');
-  String get tlsFragmentHint => _t(
-      'Сильнее, но медленнее. Включайте, если не помогло разбиение записей',
-      'Stronger but slower. Try it when record splitting is not enough');
-  String get fingerprint => _t('Отпечаток браузера (uTLS)', 'Browser fingerprint (uTLS)');
-  String get fingerprintKeep => _t('Как в профиле', 'As in the profile');
-  String get directFragment =>
-      _t('Обрабатывать прямые соединения', 'Also treat direct connections');
-  String get directFragmentHint => _t(
-      'Помогает сайтам, которые замедляют, а не блокируют',
-      'Helps with sites that are throttled rather than blocked');
-  String get spoofSni => _t('Подмена SNI', 'SNI spoofing');
-  String get spoofSniHint => _t(
-      'Отправлять ложное приветствие с разрешённым доменом. Только режим администратора',
-      'Send a decoy hello carrying an allowed domain. Administrator mode only');
   String get secTunnels => _t('Проброс портов', 'Port forwarding');
   String get tunnelsHint => _t(
       'Локальный порт, который ведёт на заданный адрес через VPN',
@@ -299,7 +268,6 @@ class S {
   String get themeDark => _t('Тёмная', 'Dark');
   String get launchAtStartup => _t('Запускать при входе в систему', 'Start with Windows');
   String get autoConnect => _t('Подключаться при запуске', 'Connect on launch');
-  String get minimizeToTray => _t('Сворачивать в трей при закрытии', 'Close to tray');
   String get secUpdates => _t('Обновления', 'Updates');
   String get checkUpdatesAuto =>
       _t('Проверять обновления автоматически', 'Check for updates automatically');
@@ -350,7 +318,6 @@ class S {
   String get fullView => _t('Обычный вид', 'Full view');
   String get modeProxyShort => _t('Прокси', 'Proxy');
   String get modeTunShort => _t('VPN', 'VPN');
-  String get total => _t('Всего', 'Total');
 
   // ---- list groups and ping (1.0.2)
   String get collapse => _t('Свернуть', 'Collapse');
@@ -420,9 +387,6 @@ class S {
   String get quickTileManual => _t(
       'Откройте шторку, нажмите «Изменить» (значок карандаша) и перетащите плитку HeaNetwork к остальным.',
       'Open quick settings, tap Edit (the pencil icon) and drag the HeaNetwork tile in with the others.');
-  String get profileWins => _t(
-      'Параметры, заданные в самом сервере или подписке, всегда имеют приоритет: приложение только добавляет недостающее.',
-      'Settings carried by the server or subscription always take priority: the app only adds what is missing.');
 
   // ---- send / receive by QR
   String get receiveFromPhone => _t('Получить с телефона (QR)', 'Receive from a phone (QR)');

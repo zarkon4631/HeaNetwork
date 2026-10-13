@@ -320,9 +320,6 @@ void applyStream(Map<String, dynamic> out, Map<String, String> p, String host,
   applyFinalMask(out, p['fm']);
 }
 
-String _nameOr(String name, String host, int port) =>
-    name.isNotEmpty ? name : '$host:$port';
-
 ProxyProfile parseVless(String link) {
   final l = RawLink.parse(link);
   if (l.userInfo.isEmpty) throw LinkParseException('VLESS: missing UUID');
@@ -346,7 +343,7 @@ ProxyProfile parseVless(String link) {
   if (pe != null) out['packet_encoding'] = pe == 'none' ? '' : pe;
   applyStream(out, l.query, l.host);
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.vless,
     outbound: out,
     link: link,
@@ -369,7 +366,7 @@ ProxyProfile parseTrojan(String link) {
   // Trojan is TLS unless the link explicitly says otherwise.
   applyStream(out, l.query, l.host, forceTls: l.q('security') == null);
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.trojan,
     outbound: out,
     link: link,
@@ -425,7 +422,7 @@ ProxyProfile parseVmess(String link) {
   if (fm != null) p['fm'] = fm is String ? fm : jsonEncode(fm);
   applyStream(out, p, host);
   return ProxyProfile(
-    name: _nameOr(s('ps'), host, port),
+    name: nameOr(s('ps'), host, port),
     type: Protocol.vmess,
     outbound: out,
     link: link,

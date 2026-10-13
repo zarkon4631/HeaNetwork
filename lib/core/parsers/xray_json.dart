@@ -291,7 +291,9 @@ ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
     final tls = tlsFromParams(params, host: host, forceTls: true);
     if (tls != null) out['tls'] = tls;
   } else {
-    applyStream(out, params, host, forceTls: protocol == 'trojan' && params['security'] == null);
+    // Nothing is assumed about TLS here, Trojan included: unlike a share
+    // link, a config always says which security it wants.
+    applyStream(out, params, host);
   }
 
   return ProxyProfile(

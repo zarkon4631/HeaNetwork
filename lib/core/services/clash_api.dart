@@ -1,6 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+/// A fresh secret for the core's API. Without it the API answers nobody, so
+/// no other program on the machine can steer the connection.
+String newApiSecret() {
+  final random = Random.secure();
+  return List.generate(24, (_) => random.nextInt(16).toRadixString(16)).join();
+}
 
 class TrafficSample {
   const TrafficSample(this.up, this.down);

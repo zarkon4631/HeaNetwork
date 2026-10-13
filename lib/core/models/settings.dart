@@ -655,7 +655,7 @@ class RoutingSettings {
         .toList();
     if (existing.isNotEmpty) {
       adoptGroup(existing.firstWhere(
-          (a) => a.processName?.toLowerCase() == steamGroup.main,
+          (a) => a.processName?.toLowerCase() == steamGroup.main.toLowerCase(),
           orElse: () => existing.first));
       return true;
     }

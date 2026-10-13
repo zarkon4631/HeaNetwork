@@ -1,9 +1,6 @@
 import '../models/profile.dart';
 import 'link_utils.dart';
 
-String _nameOr(String name, String host, int port) =>
-    name.isNotEmpty ? name : '$host:$port';
-
 void _requireServer(RawLink l, String proto) {
   if (l.host.isEmpty || l.port == 0) {
     throw LinkParseException('$proto: missing server address');
@@ -48,7 +45,7 @@ ProxyProfile parseShadowsocks(String link) {
     if (semi >= 0) out['plugin_opts'] = plugin.substring(semi + 1);
   }
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.shadowsocks,
     outbound: out,
     link: link,
@@ -99,7 +96,7 @@ ProxyProfile parseHysteria2(String link) {
   if (down != null && down > 0) out['down_mbps'] = down;
 
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.hysteria2,
     outbound: out,
     link: link,
@@ -132,7 +129,7 @@ ProxyProfile parseHysteria(String link) {
   if (obfs != null) out['obfs'] = obfs;
 
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.hysteria,
     outbound: out,
     link: link,
@@ -168,7 +165,7 @@ ProxyProfile parseTuic(String link) {
   if (relay != null) out['udp_relay_mode'] = relay;
 
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.tuic,
     outbound: out,
     link: link,
@@ -184,7 +181,7 @@ ProxyProfile parseSocks(String link) {
   if (creds.isNotEmpty && !creds.contains(':')) creds = tryBase64(creds) ?? creds;
   final sep = creds.indexOf(':');
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, l.port),
+    name: nameOr(l.name, l.host, l.port),
     type: Protocol.socks,
     outbound: compact({
       'type': 'socks',
@@ -206,7 +203,7 @@ ProxyProfile parseHttpProxy(String link) {
   if (l.host.isEmpty) throw LinkParseException('HTTP: missing server address');
   final sep = l.userInfo.indexOf(':');
   return ProxyProfile(
-    name: _nameOr(l.name, l.host, port),
+    name: nameOr(l.name, l.host, port),
     type: Protocol.http,
     outbound: compact({
       'type': 'http',

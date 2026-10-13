@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
-import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../core/models/profile.dart';
+import '../../core/services/clash_api.dart';
 import '../../core/services/latency_tester.dart';
 import '../../l10n/strings.dart';
 import '../../state/app_state.dart';
@@ -55,12 +54,6 @@ class AndroidWidgetBridge with WidgetsBindingObserver {
     _debounce = Timer(const Duration(milliseconds: 700), export);
   }
 
-  S get _strings {
-    final locale = state.settings.locale;
-    final code =
-        locale == 'system' ? PlatformDispatcher.instance.locale.languageCode : locale;
-    return code == 'ru' ? S.ru : S.en;
-  }
 
   /// The servers the widget offers: what the list shows, in the same order.
   List<ProxyProfile> get _profiles => [
@@ -78,9 +71,7 @@ class AndroidWidgetBridge with WidgetsBindingObserver {
       // One control port and secret for every pre-built config, so the app
       // can attach to a core the widget started.
       final clashPort = await freeTcpPort();
-      final random = Random.secure();
-      final secret =
-          List.generate(24, (_) => random.nextInt(16).toRadixString(16)).join();
+      final secret = newApiSecret();
 
       final profiles = _profiles;
       final keep = <String>{};
@@ -94,7 +85,7 @@ class AndroidWidgetBridge with WidgetsBindingObserver {
         if (entry is File && !keep.contains(entry.path)) await entry.delete();
       }
 
-      final s = _strings;
+      final s = S.forSetting(locale);
       final tmp = File('${_stateFile.path}.tmp');
       await tmp.writeAsString(jsonEncode({
         'profiles': [

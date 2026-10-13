@@ -153,8 +153,7 @@ class PanelRouting {
   /// Every rule-set this profile refers to.
   Set<String> get ruleSetTags => {
         for (final a in RouteAction.values)
-          for (final e in [...sitesOf(a), ...ipsOf(a)])
-            if (ruleSetTag(e) != null) ruleSetTag(e)!,
+          for (final e in [...sitesOf(a), ...ipsOf(a)]) ?ruleSetTag(e),
       };
 
   /// Where a rule-set is published in the core's binary format.
