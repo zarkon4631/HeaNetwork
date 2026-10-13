@@ -161,6 +161,22 @@ const directDnsPresets = [
   DnsPreset('Cloudflare', '1.1.1.1'),
 ];
 
+/// The choices the settings page offers. Anything else found on disk (a
+/// file from another version, or one edited by hand) gives way to the
+/// default, so the page always has a choice to show as the current one.
+const tunStacks = ['mixed', 'gvisor', 'system'];
+const logLevels = ['warn', 'info', 'debug'];
+const appLocales = ['system', 'ru', 'en'];
+const themeModes = ['system', 'light', 'dark'];
+
+String _choice(Object? value, List<String> offered, String fallback) =>
+    offered.contains(value) ? value as String : fallback;
+
+int? _port(Object? value) {
+  final port = value is num ? value.toInt() : null;
+  return port != null && port > 0 && port <= 65535 ? port : null;
+}
+
 /// What closing the main window does.
 enum CloseAction {
   /// Ask every time: cancel, quit or hide to the tray.
@@ -325,12 +341,12 @@ class AppSettings {
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
-        locale: j['locale'] as String? ?? 'system',
-        themeMode: j['themeMode'] as String? ?? 'system',
+        locale: _choice(j['locale'], appLocales, 'system'),
+        themeMode: _choice(j['themeMode'], themeModes, 'system'),
         mode: ConnectionMode.parse(j['mode'] as String?),
-        mixedPort: (j['mixedPort'] as num?)?.toInt() ?? 2080,
+        mixedPort: _port(j['mixedPort']) ?? 2080,
         allowLan: j['allowLan'] as bool? ?? false,
-        tunStack: j['tunStack'] as String? ?? 'mixed',
+        tunStack: _choice(j['tunStack'], tunStacks, 'mixed'),
         tunMtu: (j['tunMtu'] as num?)?.toInt() ?? 0,
         strictRoute: j['strictRoute'] as bool? ?? true,
         ipv6: j['ipv6'] as bool? ?? false,
@@ -352,7 +368,7 @@ class AppSettings {
         sendHwid: j['sendHwid'] as bool? ?? true,
         installId: j['installId'] as String?,
         checkUpdates: j['checkUpdates'] as bool? ?? true,
-        logLevel: j['logLevel'] as String? ?? 'info',
+        logLevel: _choice(j['logLevel'], logLevels, 'info'),
         pingMode: PingMode.parse(j['pingMode'] as String?),
         ownServersCollapsed: j['ownServersCollapsed'] as bool? ?? false,
         portForwards: (j['portForwards'] as List? ?? const [])

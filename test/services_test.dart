@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -109,6 +110,60 @@ void main() {
       final u = Updater(client: github());
       final r = (await u.check('0.1.0', assetSuffixes: ['windows-x64-setup.exe']))!;
       await expectLater(u.download(r, tmp), throwsA(isA<UpdateException>()));
+    });
+
+    test('a download that stops arriving gives up and leaves nothing behind', () async {
+      final good = '${sha256.convert(installer)}  $name\n';
+      // The installer starts to arrive, and then nothing more does.
+      final stalling = MockClient.streaming((req, _) async {
+        if (req.url.path == '/sums') {
+          return http.StreamedResponse(Stream.value(utf8.encode(good)), 200);
+        }
+        final body = StreamController<List<int>>()..add(installer.sublist(0, 5));
+        addTearDown(body.close);
+        return http.StreamedResponse(body.stream, 200, contentLength: installer.length);
+      });
+      final release = ReleaseInfo(
+        version: '0.2.0',
+        notes: '',
+        pageUrl: 'https://example.com/release',
+        assetName: name,
+        assetUrl: Uri.parse('https://example.com/$name'),
+        assetSize: installer.length,
+        checksumsUrl: Uri.parse('https://example.com/sums'),
+      );
+      final u = Updater(client: stalling, stallTimeout: const Duration(milliseconds: 200));
+      await expectLater(
+          u.download(release, tmp),
+          throwsA(isA<UpdateException>()
+              .having((e) => e.message, 'message', contains('stalled'))));
+      expect(File('${tmp.path}/$name').existsSync(), isFalse);
+    });
+
+    test('an installer that has been installed is removed at the next start', () async {
+      File installerOf(String version) =>
+          File('${tmp.path}/HeaNetwork-$version-windows-x64-setup.exe')
+            ..writeAsStringSync('x');
+      final installed = installerOf('0.2.0');
+      final older = installerOf('0.1.0');
+      // Downloaded, and still waiting for the system to install it.
+      final waiting = installerOf('0.3.0');
+      final other = File('${tmp.path}/notes.txt')..writeAsStringSync('not an installer');
+
+      await Updater(client: github()).clearInstalled(tmp, '0.2.0');
+      expect([installed.existsSync(), older.existsSync()], [false, false]);
+      expect([waiting.existsSync(), other.existsSync()], [true, true]);
+    });
+
+    test('the installers of earlier updates are cleared out by the next one', () async {
+      final good = '${sha256.convert(installer)}  $name\n';
+      final old = File('${tmp.path}/HeaNetwork-0.1.0-windows-x64-setup.exe')
+        ..writeAsStringSync('done its job long ago');
+      final u = Updater(client: github(sums: good));
+      final r = (await u.check('0.1.0', assetSuffixes: ['windows-x64-setup.exe']))!;
+      final file = await u.download(r, tmp);
+      expect(file.existsSync(), isTrue);
+      expect(old.existsSync(), isFalse);
     });
   });
 

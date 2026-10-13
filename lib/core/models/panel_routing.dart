@@ -189,8 +189,9 @@ class PanelRouting {
       final value = colon > 0 ? entry.substring(colon + 1).trim() : entry;
       if (value.isEmpty) continue;
       if (kind == 'geosite' || kind == 'geoip') {
-        // Only `private` gets here.
-        if (!domainsOnly) private = true;
+        // What gets here is not the name of a published list. `private`
+        // needs none; anything else (a typo in the panel) is left out.
+        if (!domainsOnly && value.toLowerCase() == 'private') private = true;
       } else if (kind == 'domain') {
         add('domain_suffix', value);
       } else if (kind == 'full') {

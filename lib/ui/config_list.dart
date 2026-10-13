@@ -11,6 +11,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/models/profile.dart';
+import '../core/parsers/link_utils.dart' show LinkParseException;
 import '../core/parsers/misc_links.dart';
 import '../core/services/lan_receiver.dart';
 import '../core/services/subscription_service.dart';
@@ -25,6 +26,8 @@ String describeSubscriptionError(S s, Object error) {
     return switch (error.code) {
       SubscriptionError.deviceLimit => s.deviceLimit,
       SubscriptionError.deviceIdRequired => s.deviceIdRequired,
+      SubscriptionError.unreachable => s.subscriptionUnreachable,
+      SubscriptionError.badUrl => s.subscriptionBadUrl,
       SubscriptionError.unsupported =>
         s.onlyUnsupported(error.message.split(', ').map(s.unsupportedWhat).join(', ')),
       SubscriptionError.other => '${s.subscriptionFailed}: ${error.message}',
@@ -976,7 +979,13 @@ class _ManualProxyDialogState extends State<_ManualProxyDialog> {
     final bracketed = host.contains(':') ? '[$host]' : host;
     final link =
         '$_type://$auth$bracketed:$port#${Uri.encodeComponent(_name.text.trim())}';
-    final profile = _type == 'socks5' ? parseSocks(link) : parseHttpProxy(link);
+    final ProxyProfile profile;
+    try {
+      profile = _type == 'socks5' ? parseSocks(link) : parseHttpProxy(link);
+    } on LinkParseException {
+      // An address no link can carry: the dialog stays open for another try.
+      return;
+    }
     Navigator.pop(context, profile);
   }
 

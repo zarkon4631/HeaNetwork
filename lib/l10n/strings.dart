@@ -335,6 +335,12 @@ class S {
   String get deviceLimit => _t(
       'Достигнут лимит устройств для этой подписки. Отключите другое устройство в панели или обратитесь к администратору.',
       'The device limit of this subscription is reached. Remove another device in the panel or contact the administrator.');
+  String get subscriptionUnreachable => _t(
+      'Сервер подписки не отвечает. Проверьте подключение к интернету и адрес подписки.',
+      'The subscription server does not answer. Check the internet connection and the address of the subscription.');
+  String get subscriptionBadUrl => _t(
+      'Это не адрес подписки. Он начинается с https:// и ведёт на сервер.',
+      'This is not a subscription address. One starts with https:// and names a server.');
   String get deviceIdRequired => _t(
       'Сервер требует идентификатор устройства. Включите «Отправлять HWID» в настройках.',
       'The server requires a device id. Turn on “Send HWID” in settings.');

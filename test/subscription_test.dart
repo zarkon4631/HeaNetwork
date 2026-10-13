@@ -1,6 +1,7 @@
 // Subscriptions as a 3x-ui panel serves them: device identification (HWID),
 // the device limit, the metadata headers, and what a refresh may and may not
 // disturb in the app.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -124,6 +125,58 @@ void main() {
               body([sampleLinks['tuic']!]), 200,
               headers: {'support-url': 'javascript:alert(1)'})));
       expect(r.supportUrl, isNull);
+    });
+  });
+
+  group('a subscription that cannot be loaded', () {
+    test('a server that cannot be reached is told apart from one that refuses',
+        () async {
+      Future<SubscriptionException> failure(Object error) async {
+        try {
+          await fetchSubscription('https://panel.example/sub/abc',
+              client: MockClient((_) async => throw error));
+        } on SubscriptionException catch (e) {
+          return e;
+        }
+        fail('the request went through');
+      }
+
+      for (final error in [
+        const SocketException('no route to host'),
+        http.ClientException('connection closed before full header was received'),
+        TimeoutException('no answer'),
+      ]) {
+        expect((await failure(error)).code, SubscriptionError.unreachable, reason: '$error');
+      }
+    });
+
+    test('what is not an address is not asked for at all', () async {
+      var asked = 0;
+      final client = MockClient((_) async {
+        asked++;
+        return http.Response('', 200);
+      });
+      for (final url in ['', 'panel.example/sub', 'ftp://panel.example/sub', 'https:///sub']) {
+        await expectLater(
+            fetchSubscription(url, client: client),
+            throwsA(isA<SubscriptionException>()
+                .having((e) => e.code, 'code', SubscriptionError.badUrl)),
+            reason: url);
+      }
+      expect(asked, 0);
+    });
+
+    test('an address typed without https:// is taken as one', () async {
+      final asked = <Uri>[];
+      final state = makeState(
+          populated: false,
+          subscriptionClient: MockClient((req) async {
+            asked.add(req.url);
+            return http.Response(sampleLinks['tuic']!, 200);
+          }));
+      final sub = await state.addSubscription(' panel.example/sub/abc ');
+      expect(sub.url, 'https://panel.example/sub/abc');
+      expect(asked.single.toString(), 'https://panel.example/sub/abc');
     });
   });
 

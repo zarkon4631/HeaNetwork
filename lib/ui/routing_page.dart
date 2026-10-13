@@ -76,9 +76,12 @@ class RoutingPage extends StatelessWidget {
     Future<void> addSite() async {
       final text = await promptText(context,
           title: s.addSite, hint: s.siteExample, label: s.sites);
-      if (text == null || text.isEmpty) return;
-      state.updateRouting((r) => r.domains.add(DomainRule.guess(
-          text, proxyDefault ? RouteAction.direct : RouteAction.proxy)));
+      if (text == null) return;
+      final rule =
+          DomainRule.guess(text, proxyDefault ? RouteAction.direct : RouteAction.proxy);
+      // "https://" and the like: nothing a rule could be about.
+      if (rule.value.isEmpty) return;
+      state.updateRouting((r) => r.domains.add(rule));
     }
 
     return Scaffold(
@@ -605,10 +608,12 @@ class _AppPickerPageState extends State<_AppPickerPage> {
                 child: FutureBuilder<List<AppEntry>>(
                   future: _apps,
                   builder: (context, snap) {
-                    if (!snap.hasData) {
+                    if (snap.connectionState != ConnectionState.done) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final apps = snap.data!.where((a) {
+                    // A list that could not be read is an empty one, not an
+                    // endless wait: a program can still be picked from disk.
+                    final apps = (snap.data ?? const <AppEntry>[]).where((a) {
                       if (a.system && !_showSystem) return false;
                       if (_query.isEmpty) return true;
                       return a.name.toLowerCase().contains(_query) ||

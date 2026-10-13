@@ -206,6 +206,24 @@ void main() {
       expect(p.name, 'My Amnezia');
       expect((p.outbound['amnezia'] as Map)['jc'], 4);
     });
+
+    test('a broken endpoint is a reason, not a crash', () {
+      const conf = '[Interface]\nPrivateKey = k\nAddress = 10.0.0.2/32\n'
+          '[Peer]\nPublicKey = p\nEndpoint = [fe80::1\n';
+      final r = parseImportText(conf);
+      expect(r.profiles, isEmpty);
+      expect(r.errors.single, contains('Endpoint'));
+    });
+
+    test('an Amnezia key without a tunnel in it says so', () {
+      // What the Amnezia app shares for a protocol the core has none of:
+      // its JSON, zlib-compressed behind a four-byte length.
+      final json = utf8.encode(jsonEncode({'hostName': 'x'}));
+      final key = base64Url.encode([0, 0, 0, json.length, ...zlib.encode(json)]);
+      final r = parseImportText('vpn://$key');
+      expect(r.profiles, isEmpty);
+      expect(r.errors.single, contains('no WireGuard or AmneziaWG'));
+    });
   });
 
   group('import text', () {
@@ -274,6 +292,11 @@ void main() {
           '2001:db8::1/128');
       expect(DomainRule.guess('youtube', RouteAction.proxy).kind,
           DomainRuleKind.domainKeyword);
+    });
+
+    test('nothing to go by gives nothing', () {
+      expect(DomainRule.guess('https://', RouteAction.direct).value, isEmpty);
+      expect(DomainRule.guess('  ', RouteAction.direct).value, isEmpty);
     });
   });
 }

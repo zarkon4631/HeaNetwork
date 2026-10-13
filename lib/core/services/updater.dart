@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -80,15 +81,22 @@ String? checksumFor(String sums, String fileName) {
 
 /// Checks GitHub Releases for a newer version and downloads its installer.
 class Updater {
-  Updater({http.Client? client, this.repo = releaseRepo})
-      : _client = client ?? http.Client();
+  Updater({
+    http.Client? client,
+    this.repo = releaseRepo,
+    this.stallTimeout = const Duration(seconds: 30),
+  }) : _client = client ?? http.Client();
 
   final http.Client _client;
   final String repo;
 
+  /// How long a download may go without a byte arriving before it is given
+  /// up; without it a connection that went quiet would hang the update.
+  final Duration stallTimeout;
+
   /// Returns the latest release if it is newer than [currentVersion].
-  /// [assetSuffix] selects the file for this platform, for example
-  /// `windows-x64-setup.exe` or `android-arm64-v8a.apk`.
+  /// [assetSuffixes] select the file for this platform, the preferred one
+  /// first, for example `android-arm64-v8a.apk`, `android-universal.apk`.
   Future<ReleaseInfo?> check(String currentVersion,
       {required List<String> assetSuffixes}) async {
     final res = await _client.get(
@@ -106,16 +114,10 @@ class Updater {
     final assets = (j['assets'] as List? ?? const []).cast<Map<String, dynamic>>();
     Map<String, dynamic>? asset;
     for (final suffix in assetSuffixes) {
-      asset = assets
-          .where((a) => '${a['name']}'.endsWith(suffix))
-          .cast<Map<String, dynamic>?>()
-          .firstWhere((_) => true, orElse: () => null);
+      asset = assets.where((a) => '${a['name']}'.endsWith(suffix)).firstOrNull;
       if (asset != null) break;
     }
-    final sums = assets
-        .where((a) => a['name'] == 'SHA256SUMS.txt')
-        .cast<Map<String, dynamic>?>()
-        .firstWhere((_) => true, orElse: () => null);
+    final sums = assets.where((a) => a['name'] == 'SHA256SUMS.txt').firstOrNull;
 
     return ReleaseInfo(
       version: tag.replaceFirst(RegExp('^[vV]'), ''),
@@ -156,8 +158,14 @@ class Updater {
     }
 
     await dir.create(recursive: true);
+    // Whatever earlier updates left here has done its job.
+    await for (final old in dir.list()) {
+      if (old is File) await _discard(old);
+    }
     final file = File('${dir.path}${Platform.pathSeparator}$name');
-    final res = await _client.send(http.Request('GET', url));
+    Never stalled() => throw UpdateException('the download stalled');
+    final res =
+        await _client.send(http.Request('GET', url)).timeout(stallTimeout, onTimeout: stalled);
     if (res.statusCode != 200) {
       throw UpdateException('download failed (${res.statusCode})');
     }
@@ -166,23 +174,57 @@ class Updater {
     final digestSink = _DigestSink();
     final hasher = sha256.startChunkedConversion(digestSink);
     var received = 0;
+    var complete = false;
     try {
-      await for (final chunk in res.stream) {
+      await for (final chunk in res.stream.timeout(stallTimeout)) {
         sink.add(chunk);
         hasher.add(chunk);
         received += chunk.length;
         if (total > 0) onProgress?.call(received / total);
       }
+      complete = true;
+    } on TimeoutException {
+      stalled();
     } finally {
       await sink.close();
       hasher.close();
+      // Half an installer is of no use to anybody.
+      if (!complete) await _discard(file);
     }
     final actual = digestSink.value.toString();
     if (actual != expected) {
-      await file.delete();
+      await _discard(file);
       throw UpdateException('checksum mismatch, the download was discarded');
     }
     return file;
+  }
+
+  /// Removes the installers in [dir] that have been installed: those of
+  /// [currentVersion] and of versions before it. One of a newer version is
+  /// still waiting for the system to install it, and stays. Never throws.
+  Future<void> clearInstalled(Directory dir, String currentVersion) async {
+    try {
+      if (!await dir.exists()) return;
+      await for (final entry in dir.list()) {
+        if (entry is! File) continue;
+        final version = _installerVersion.firstMatch(entry.uri.pathSegments.last)?.group(1);
+        if (version != null && compareVersions(version, currentVersion) <= 0) {
+          await _discard(entry);
+        }
+      }
+    } on FileSystemException {
+      // Tried again at the next start.
+    }
+  }
+
+  static final _installerVersion = RegExp(r'^HeaNetwork-(\d+(?:\.\d+)*)-');
+
+  static Future<void> _discard(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // Still in use; the next update tries again.
+    }
   }
 
   void close() => _client.close();

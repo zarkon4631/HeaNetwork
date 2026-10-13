@@ -343,29 +343,57 @@ Future<bool> confirm(BuildContext context, String title,
       false;
 }
 
+/// Asks for a line of text. Returns it trimmed, or null when the user
+/// backed out.
 Future<String?> promptText(BuildContext context,
-    {required String title, String initial = '', String? hint, String? label}) {
-  final controller = TextEditingController(text: initial);
-  final s = S.of(context);
-  return showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
+        {required String title, String initial = '', String? hint, String? label}) =>
+    showDialog<String>(
+      context: context,
+      builder: (_) => _PromptDialog(title: title, initial: initial, hint: hint, label: label),
+    );
+
+class _PromptDialog extends StatefulWidget {
+  const _PromptDialog({required this.title, required this.initial, this.hint, this.label});
+
+  final String title;
+  final String initial;
+  final String? hint;
+  final String? label;
+
+  @override
+  State<_PromptDialog> createState() => _PromptDialogState();
+}
+
+class _PromptDialogState extends State<_PromptDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return AlertDialog(
+      title: Text(widget.title),
       content: SizedBox(
         width: 420,
         child: TextField(
-          controller: controller,
+          controller: _controller,
           autofocus: true,
-          decoration: InputDecoration(labelText: label, helperText: hint, helperMaxLines: 3),
+          decoration: InputDecoration(
+              labelText: widget.label, helperText: widget.hint, helperMaxLines: 3),
           onSubmitted: (v) => Navigator.pop(context, v.trim()),
         ),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
         FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            onPressed: () => Navigator.pop(context, _controller.text.trim()),
             child: Text(s.save)),
       ],
-    ),
-  );
+    );
+  }
 }

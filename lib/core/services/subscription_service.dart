@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -19,6 +21,13 @@ class SubscriptionException implements Exception {
 
 enum SubscriptionError {
   other,
+
+  /// The address is not one a subscription can be at.
+  badUrl,
+
+  /// The server did not answer: no connection, no such host, no reply in
+  /// time.
+  unreachable,
 
   /// The panel limits devices per subscription and this one does not fit.
   deviceLimit,
@@ -106,6 +115,13 @@ String? _url(String? header) {
   return v;
 }
 
+/// The address of a subscription as it was typed, with `https://` supplied
+/// when that was left out.
+String subscriptionAddress(String typed) {
+  final text = typed.trim();
+  return text.isEmpty || text.contains('://') ? text : 'https://$text';
+}
+
 /// Downloads and parses a subscription.
 ///
 /// [deviceHeaders] identify this device to the panel (see `DeviceIdentity`);
@@ -116,17 +132,27 @@ Future<SubscriptionResult> fetchSubscription(
   String userAgent = 'HeaNetwork',
   Map<String, String> deviceHeaders = const {},
 }) async {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null || !(uri.isScheme('http') || uri.isScheme('https')) || uri.host.isEmpty) {
+    throw SubscriptionException('not a subscription address',
+        code: SubscriptionError.badUrl);
+  }
   final c = client ?? http.Client();
   try {
     final http.Response res;
     try {
-      res = await c.get(Uri.parse(url), headers: {
+      res = await c.get(uri, headers: {
         'User-Agent': userAgent,
         'Accept': '*/*',
         ...deviceHeaders,
       }).timeout(const Duration(seconds: 25));
-    } on FormatException {
-      throw SubscriptionException('invalid URL');
+    } on TimeoutException {
+      throw SubscriptionException('the server did not answer in time',
+          code: SubscriptionError.unreachable);
+    } on SocketException catch (e) {
+      throw SubscriptionException(e.message, code: SubscriptionError.unreachable);
+    } on http.ClientException catch (e) {
+      throw SubscriptionException(e.message, code: SubscriptionError.unreachable);
     }
 
     // 3x-ui answers a refused device with 404 plus one of these markers.

@@ -170,6 +170,22 @@ void main() {
       expect(PanelRouting.ruleSetUrl('geosite-cn'),
           contains('sing-geosite/rule-set/geosite-cn.srs'));
     });
+
+    test('a list name that cannot be one is left out, not taken for "private"', () {
+      bool any(String _) => true;
+      final odd = PanelRouting.fromProfile({
+        'BlockSites': ['geosite:ads list', 'geosite:'],
+        'BlockIp': ['geoip:r u'],
+      });
+      expect(odd.conditions(RouteAction.block, available: any), isEmpty,
+          reason: 'or a typo in the panel would block the local network');
+
+      final private = PanelRouting.fromProfile({
+        'DirectSites': ['geosite:PRIVATE'],
+        'DirectIp': ['geoip:private'],
+      });
+      expect(private.conditions(RouteAction.direct, available: any), {'ip_is_private': true});
+    });
   });
 
   group('config', () {
@@ -329,6 +345,33 @@ void main() {
       final off = await state.importText('happ://routing/off');
       expect(off.routing!.isEmpty, isTrue);
       expect(state.panelRouting, isNull);
+    });
+
+    test('lists asked for while others are on their way are fetched too', () async {
+      // The first download is still running when another profile, naming
+      // another list, comes in.
+      final first = Completer<void>();
+      final asked = <String>[];
+      final state = makeState(
+          populated: false,
+          subscriptionClient: MockClient((req) async {
+            asked.add(req.url.pathSegments.last);
+            if (asked.length == 1) await first.future;
+            return http.Response.bytes([0x53, 0x52, 0x53, 3, 0, 0, 0, 0], 200);
+          }));
+      await state.importText(happLink({
+        'DirectSites': ['geosite:one'],
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await state.importText(happLink({
+        'DirectSites': ['geosite:two'],
+      }));
+      first.complete();
+      for (var i = 0; i < 40 && state.missingPanelRuleSets.isNotEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(asked, contains('geosite-two.srs'));
+      expect(state.missingPanelRuleSets, isEmpty);
     });
   });
 

@@ -35,6 +35,7 @@ String _withMask(String addr) {
   final e = endpoint.trim();
   if (e.startsWith('[')) {
     final close = e.indexOf(']');
+    if (close < 0) return ('', 0);
     return (
       e.substring(1, close),
       int.tryParse(e.substring(close + 1).replaceFirst(':', '')) ?? 0
@@ -228,7 +229,8 @@ ProxyProfile parseAmneziaKey(String link) {
     throw LinkParseException('Amnezia: cannot decode key');
   }
 
-  final containers = (root['containers'] as List? ?? const []).cast<Map>();
+  final listed = root['containers'];
+  final containers = [if (listed is List) ...listed.whereType<Map>()];
   final preferred = root['defaultContainer'];
   containers.sort((a, b) =>
       (b['container'] == preferred ? 1 : 0) -

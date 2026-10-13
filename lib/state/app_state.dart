@@ -273,6 +273,7 @@ class AppState extends ChangeNotifier {
         // Never raise a UAC prompt unasked at startup.
       }
     }
+    unawaited(_updater.clearInstalled(paths.downloads, appVersion));
     if (settings.checkUpdates) unawaited(checkForUpdate(silent: true));
     // Honour the refresh interval each panel asks for.
     unawaited(refreshDueSubscriptions());
@@ -348,11 +349,17 @@ class AppState extends ChangeNotifier {
       (availablePanelRouting?.ruleSetTags ?? const <String>{}).difference(_ruleSets);
 
   bool _fetchingRuleSets = false;
+  bool _ruleSetsAskedAgain = false;
 
   /// Downloads the site and address lists the routing profiles refer to.
   /// A list that cannot be fetched is simply not applied until it can.
   Future<void> _fetchPanelRuleSets() async {
-    if (_fetchingRuleSets) return;
+    if (_fetchingRuleSets) {
+      // What is wanted may have changed since the round under way began:
+      // one more follows it.
+      _ruleSetsAskedAgain = true;
+      return;
+    }
     final wanted = <String>{
       for (final s in subscriptions) ...?s.routing?.ruleSetTags,
       ...?routing.imported?.ruleSetTags,
@@ -390,6 +397,10 @@ class AppState extends ChangeNotifier {
       if (status != CoreStatus.stopped && panelRouting != null) _noteCoreChange();
       configRevision++;
       notifyListeners();
+    }
+    if (_ruleSetsAskedAgain) {
+      _ruleSetsAskedAgain = false;
+      unawaited(_fetchPanelRuleSets());
     }
   }
 
@@ -957,7 +968,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Subscription> addSubscription(String url, {String? name}) async {
-    final sub = Subscription(name: name ?? '', url: url.trim());
+    final sub = Subscription(name: name ?? '', url: subscriptionAddress(url));
     final result = await _fetch(sub.url);
     _applySubscription(sub, result);
     if (sub.name.isEmpty) {

@@ -23,8 +23,50 @@ class AppStore {
     try {
       return jsonDecode(await f.readAsString());
     } on FormatException {
-      // A torn write must not brick the app; keep the bad file for diagnosis.
+      // A torn write must not brick the app.
+      await _setAside(name);
+      return null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// Keeps a file the app cannot use for diagnosis, out of its own way.
+  Future<void> _setAside(String name) async {
+    final f = _file(name);
+    try {
       await f.rename('${f.path}.corrupt');
+    } on FileSystemException {
+      // It is overwritten by the next save, then.
+    }
+  }
+
+  /// The records of a list on disk. What is on disk is not always what this
+  /// version wrote (another version did, or somebody's editor), so a record
+  /// that cannot be read is left out rather than allowed to cost the rest,
+  /// let alone the start of the app.
+  static List<T> _records<T>(Object? json, T Function(Map<String, dynamic>) parse) {
+    final out = <T>[];
+    if (json is! List) return out;
+    for (final e in json) {
+      if (e is! Map) continue;
+      try {
+        out.add(parse(Map<String, dynamic>.from(e)));
+      } on Object {
+        // Left out.
+      }
+    }
+    return out;
+  }
+
+  /// One object on disk, or null when the file holds something of another
+  /// shape; it is then set aside like a torn one and the defaults apply.
+  Future<T?> _object<T>(String name, Object? json, T Function(Map<String, dynamic>) parse) async {
+    if (json is! Map) return null;
+    try {
+      return parse(Map<String, dynamic>.from(json));
+    } on Object {
+      await _setAside(name);
       return null;
     }
   }
@@ -57,21 +99,12 @@ class AppStore {
   }
 
   Future<void> load() async {
-    final p = await _read('profiles.json');
-    if (p is List) {
-      profiles = p
-          .map((e) => ProxyProfile.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    }
-    final s = await _read('subscriptions.json');
-    if (s is List) {
-      subscriptions = s
-          .map((e) => Subscription.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    }
+    profiles = _records(await _read('profiles.json'), ProxyProfile.fromJson);
+    subscriptions = _records(await _read('subscriptions.json'), Subscription.fromJson);
     final st = await _read('settings.json');
-    if (st is Map) {
-      settings = AppSettings.fromJson(Map<String, dynamic>.from(st));
+    final stored = await _object('settings.json', st, AppSettings.fromJson);
+    if (st is Map && stored != null) {
+      settings = stored;
       // Up to 1.0.3 a whole subscription could be selected ("auto-select").
       // Such a setting turns into that subscription's fastest known server.
       final auto = st['selectedSubscriptionId'];
@@ -88,8 +121,9 @@ class AppStore {
         if (best != null) settings.selectedProfileId = best.id;
       }
     }
-    final r = await _read('routing.json');
-    if (r is Map) routing = RoutingSettings.fromJson(Map<String, dynamic>.from(r));
+    routing = await _object(
+            'routing.json', await _read('routing.json'), RoutingSettings.fromJson) ??
+        routing;
   }
 
   Future<void> saveProfiles() =>
