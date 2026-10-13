@@ -206,7 +206,9 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             server.start()
             commandServer = server
             server.startOrReloadService(config, OverrideOptions())
-            publish(RUNNING)
+            // A stop asked for meanwhile is next in the queue and takes the
+            // core down again, so it is not announced as running first.
+            if (status == STARTING) publish(RUNNING)
         } catch (e: Throwable) {
             Log.e(TAG, "core failed to start", e)
             teardown()

@@ -424,7 +424,7 @@ class _Banners extends StatelessWidget {
             icon: Icons.sync_rounded,
             text: s.pendingRestart,
             action: s.reconnect,
-            onAction: state.reconnect,
+            onAction: () => reconnectWithPrompts(context),
           ),
         if (update != null)
           strip(

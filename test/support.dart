@@ -13,6 +13,7 @@ import 'package:heanetwork/core/services/latency_tester.dart';
 import 'package:heanetwork/core/services/public_ip.dart';
 import 'package:heanetwork/core/services/storage.dart';
 import 'package:heanetwork/core/services/updater.dart';
+import 'package:heanetwork/platform/windows/system_proxy.dart';
 import 'package:heanetwork/state/app_state.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -119,6 +120,7 @@ AppState makeState({
   TcpProbe? tcpProbe,
   PublicIp? publicIp,
   Future<bool> Function()? tunnelCheck,
+  SystemProxy? systemProxy,
   CoreController? core,
 }) {
   final dir = Directory.systemTemp.createTempSync('hea_ui_');
@@ -208,6 +210,7 @@ AppState makeState({
     paths: AppPaths(support: dir, corePath: r'C:\none\sing-box.exe'),
     appVersion: '1.0.3',
     elevated: elevated,
+    systemProxy: systemProxy,
     updater: Updater(client: client ?? offlineClient()),
     // Never the real network: a test must not depend on what a server
     // happens to answer, or on when.

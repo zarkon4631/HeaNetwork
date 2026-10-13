@@ -1,5 +1,7 @@
 // Connecting: calling it off, a start that never finishes, starting as
 // administrator, and which DNS the connection uses.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/core/config/config_builder.dart';
 import 'package:heanetwork/core/models/profile.dart';
@@ -25,6 +27,29 @@ class CountingCore extends FakeCore {
     starts++;
     return super.start(config);
   }
+}
+
+/// A system proxy setting that cannot be made, as when its backup cannot be
+/// written.
+class BrokenProxy extends SystemProxy {
+  BrokenProxy() : super(File('nowhere'));
+
+  @override
+  void enable(int port) => throw const FileSystemException('cannot write the backup');
+
+  @override
+  void restore() {}
+}
+
+/// One that is made, and then cannot be put back.
+class StubbornProxy extends SystemProxy {
+  StubbornProxy() : super(File('nowhere'));
+
+  @override
+  void enable(int port) {}
+
+  @override
+  void restore() => throw const FileSystemException('cannot delete the backup');
 }
 
 Map<String, dynamic> tunOf(Map<String, dynamic> config) =>
@@ -238,6 +263,61 @@ void main() {
       state.updateSettings((s) => s.pingMode = PingMode.url);
       expect(state.pendingRestart, isFalse);
       await state.disconnect();
+    });
+
+    test('a reconnect that needs administrator rights leaves the connection up',
+        () async {
+      // Connected through the system proxy, then switched to VPN mode, which
+      // this copy of the app has no rights for.
+      final state = makeState();
+      await state.connect();
+      state.updateSettings((s) => s.mode = ConnectionMode.tun);
+      expect(state.pendingRestart, isTrue);
+
+      await expectLater(state.reconnect(), throwsA(isA<ElevationRequired>()));
+      expect(state.isConnected, isTrue,
+          reason: 'nothing is torn down for a connection that cannot be made');
+      await state.disconnect();
+    });
+
+    test('deleting the server in use asks for it, deleting another does not', () async {
+      final state = makeState();
+      await state.connect();
+      final inUse = state.selectedProfile!;
+      state.deleteProfile(state.profiles.last);
+      expect(state.pendingRestart, isFalse);
+
+      state.deleteProfile(inUse);
+      expect(state.selectedProfile, isNotNull);
+      expect(state.pendingRestart, isTrue,
+          reason: 'the connection still runs through a server that is gone');
+      await state.disconnect();
+    });
+
+    test('so does deleting the subscription the server in use came with', () async {
+      final state = makeState();
+      await state.connect();
+      state.deleteSubscription(state.subscriptions.single);
+      expect(state.pendingRestart, isTrue);
+      await state.disconnect();
+    });
+  });
+
+  group('a connection that is only half made', () {
+    test('does not leave the core running behind the error', () async {
+      final state = makeState(systemProxy: BrokenProxy());
+      await state.connect();
+      expect(state.error, contains('cannot write the backup'));
+      expect(state.status, CoreStatus.stopped);
+      expect(state.activeMode, isNull);
+    });
+
+    test('a proxy setting that cannot be put back does not keep the core up', () async {
+      final state = makeState(systemProxy: StubbornProxy());
+      await state.connect();
+      expect(state.isConnected, isTrue);
+      await state.disconnect();
+      expect(state.status, CoreStatus.stopped);
     });
   });
 

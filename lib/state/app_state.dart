@@ -261,7 +261,7 @@ class AppState extends ChangeNotifier {
     final c = core;
     if (c is ProcessCoreController) c.killOrphan();
     // A proxy setting that survived the app points at a dead port.
-    systemProxy?.restore();
+    _restoreProxy();
     // A VPN already up (started earlier, by the widget or by the quick
     // settings tile) is picked up by the status listener, which attaches the
     // statistics to it.
@@ -498,6 +498,11 @@ class AppState extends ChangeNotifier {
   /// reports that it is starting.
   DateTime? _connectingSince;
 
+  /// VPN mode on Windows cannot be started by a copy of the app that is not
+  /// running as administrator.
+  bool get _needsElevation =>
+      isWindows && settings.mode == ConnectionMode.tun && !elevated;
+
   Future<void> connect() async {
     if (status != CoreStatus.stopped || _connectingSince != null) return;
     error = null;
@@ -507,11 +512,10 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (isWindows && settings.mode == ConnectionMode.tun && !elevated) {
-      throw ElevationRequired();
-    }
+    if (_needsElevation) throw ElevationRequired();
 
     _connectingSince = DateTime.now();
+    var connected = false;
     try {
       final mixedPort = await freeTcpPort(settings.mixedPort);
       final clashPort = await freeTcpPort();
@@ -590,22 +594,47 @@ class AppState extends ChangeNotifier {
       if (isAndroid) await _writeActive(profile.id, clashPort, secret);
       _clash = ClashApi(clashPort, secret);
       _startStats();
+      connected = true;
     } on CoreCancelled {
       // Called off by the user: nothing went wrong, nothing to report.
-      activeMode = null;
     } on CoreStartTimeout catch (e) {
       error = 'start-timeout:${e.limit.inSeconds}';
-      activeMode = null;
     } on CoreException catch (e) {
       error = e.message;
-      activeMode = null;
     } on Object catch (e) {
       error = '$e';
-      activeMode = null;
     } finally {
       _connectingSince = null;
     }
+    if (!connected) {
+      activeMode = null;
+      // The core came up and a later step failed: it does not stay up behind
+      // the error, with the system half pointed at it.
+      if (status == CoreStatus.running) await _abandon();
+    }
     notifyListeners();
+  }
+
+  /// Takes down a connection that was only half made.
+  Future<void> _abandon() async {
+    _stopStats();
+    _restoreProxy();
+    try {
+      await core.stop();
+    } on Object {
+      // The core says for itself whether it is still up.
+    }
+  }
+
+  /// Puts the system's proxy setting back. Failing at that must not get in
+  /// the way of what it is a part of (stopping the core, starting the app):
+  /// the backup stays where it is, and the next launch tries again.
+  void _restoreProxy() {
+    try {
+      systemProxy?.restore();
+    } on Object {
+      // See above.
+    }
   }
 
   /// True when the core runs a tunnel on a stack that depends on Windows
@@ -640,7 +669,7 @@ class AppState extends ChangeNotifier {
     routingProblem = null;
     stackSwitched = false;
     _stopStats();
-    systemProxy?.restore();
+    _restoreProxy();
     await core.stop();
     activeMode = null;
     pendingRestart = false;
@@ -665,9 +694,12 @@ class AppState extends ChangeNotifier {
     return disconnect();
   }
 
-  /// Applies changed settings to a live connection.
+  /// Applies changed settings to a live connection. When the new connection
+  /// could not be made for want of administrator rights, the one in use is
+  /// left alone and [ElevationRequired] is thrown.
   Future<void> reconnect() async {
     if (status != CoreStatus.running) return;
+    if (_needsElevation) throw ElevationRequired();
     await disconnect();
     await connect();
   }
@@ -742,7 +774,7 @@ class AppState extends ChangeNotifier {
     if (_lastStatus == CoreStatus.running && now == CoreStatus.stopped) {
       // The core died under us: do not leave the system pointing at it.
       _stopStats();
-      systemProxy?.restore();
+      _restoreProxy();
       activeMode = null;
       if (core.lastError != null) error = core.lastError;
     }
@@ -895,11 +927,17 @@ class AppState extends ChangeNotifier {
 
   void deleteProfile(ProxyProfile p) {
     profiles.remove(p);
-    if (settings.selectedProfileId == p.id) {
-      settings.selectedProfileId = profiles.isEmpty ? null : profiles.first.id;
-      unawaited(store.saveSettings());
-    }
+    _reselectAfterRemoval();
     _profilesChanged();
+  }
+
+  /// Moves the selection off a server that is gone. A connection running
+  /// through that server goes on until the reconnect this asks for.
+  void _reselectAfterRemoval() {
+    if (profiles.any((p) => p.id == settings.selectedProfileId)) return;
+    settings.selectedProfileId = profiles.firstOrNull?.id;
+    unawaited(store.saveSettings());
+    if (status != CoreStatus.stopped) _noteCoreChange();
   }
 
   /// One request to a subscription server. With device identification on it
@@ -1068,10 +1106,7 @@ class AppState extends ChangeNotifier {
   void deleteSubscription(Subscription sub) {
     profiles.removeWhere((p) => p.subscriptionId == sub.id);
     subscriptions.remove(sub);
-    if (!profiles.any((p) => p.id == settings.selectedProfileId)) {
-      settings.selectedProfileId = profiles.firstOrNull?.id;
-    }
-    unawaited(store.saveSettings());
+    _reselectAfterRemoval();
     unawaited(store.saveSubscriptions());
     _profilesChanged();
   }

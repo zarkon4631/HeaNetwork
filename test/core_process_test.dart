@@ -47,6 +47,23 @@ Future<void> settle(bool Function() done) async {
 }
 
 void main() {
+  // Needs no core: the start is called off before anything is launched, so
+  // any program can stand in for it.
+  test('a stop that lands before the process exists calls the start off', () async {
+    final dir = Directory.systemTemp.createTempSync('hea_early_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final windir = Platform.environment['WINDIR'] ?? r'C:\Windows';
+    final early = ProcessCoreController(
+        corePath: '$windir\\System32\\where.exe', runDir: Directory('${dir.path}\\run'));
+
+    final starting = early.start(minimalConfig(1));
+    final calledOff = expectLater(starting, throwsA(isA<CoreCancelled>()));
+    await early.stop();
+    await calledOff;
+    expect(early.status, CoreStatus.stopped);
+    expect(early.logs, isEmpty, reason: 'nothing was launched');
+  });
+
   if (!File(corePath).existsSync()) {
     test('core process', () {}, skip: 'core not found at $corePath');
     return;
@@ -166,6 +183,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     expect(await portOpen(port), isFalse, reason: 'it must not be left running');
+    expect(File('${tmp.path}\\run2\\core.pid').existsSync(), isFalse,
+        reason: 'no note is kept of a process that is gone');
   });
 
   test('the log of a run is kept on disk, and the run before it too', () async {

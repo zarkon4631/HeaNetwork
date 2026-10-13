@@ -109,6 +109,9 @@ class ProcessCoreController extends CoreController {
   Process? _process;
   bool _cancelled = false;
 
+  /// Completes when the [start] under way has ended, however it ended.
+  Future<void>? _starting;
+
   File get _pidFile => File('${runDir.path}\\core.pid');
 
   /// What the core printed during this run, kept on disk so that a failure
@@ -161,6 +164,14 @@ class ProcessCoreController extends CoreController {
     _logClosed = sink.close().then<void>((_) {}).catchError((Object _) {});
   }
 
+  void _removePidFile() {
+    try {
+      if (_pidFile.existsSync()) _pidFile.deleteSync();
+    } on FileSystemException {
+      // Harmless: killOrphan validates the pid before using it.
+    }
+  }
+
   /// Client for the API the core was told to open in [config], if any.
   static ClashApi? _apiOf(Map<String, dynamic> config) {
     final experimental = config['experimental'];
@@ -200,11 +211,16 @@ class ProcessCoreController extends CoreController {
     _cancelled = false;
     setStatus(CoreStatus.starting);
     final api = _apiOf(config);
+    final ended = Completer<void>();
+    _starting = ended.future;
     try {
       await runDir.create(recursive: true);
       final configFile = File('${runDir.path}\\config.json');
       await configFile.writeAsString(jsonEncode(config), flush: true);
       await _logClosed;
+      // A stop can land before there is a process to kill. It is honoured
+      // here, and once more right after the launch.
+      if (_cancelled) throw CoreCancelled();
       _openLogFile();
 
       final process = await Process.start(
@@ -213,6 +229,7 @@ class ProcessCoreController extends CoreController {
         workingDirectory: runDir.path,
       );
       _process = process;
+      if (_cancelled) throw CoreCancelled();
       await _pidFile.writeAsString('${process.pid}');
 
       final started = Completer<void>();
@@ -246,11 +263,7 @@ class ProcessCoreController extends CoreController {
         } else if (!wanted) {
           lastError = summarizeCoreFailure(recent);
         }
-        try {
-          if (_pidFile.existsSync()) _pidFile.deleteSync();
-        } on FileSystemException {
-          // Harmless: killOrphan validates the pid before using it.
-        }
+        _removePidFile();
         _closeLogFile();
         setStatus(CoreStatus.stopped);
       }));
@@ -280,22 +293,28 @@ class ProcessCoreController extends CoreController {
       _process?.kill();
       _process = null;
       _closeLogFile();
+      _removePidFile();
       setStatus(CoreStatus.stopped);
       if (e is CoreException) rethrow;
       throw CoreException('$e');
     } finally {
       api?.close();
+      _starting = null;
+      ended.complete();
     }
   }
 
   @override
   Future<void> stop() async {
+    if (status == CoreStatus.starting) _cancelled = true;
     final process = _process;
     if (process == null) {
+      // Nothing runs. Or [start] has not launched the process yet: it sees
+      // the flag and gives up, before the launch or right after it.
+      await _starting;
       setStatus(CoreStatus.stopped);
       return;
     }
-    if (status == CoreStatus.starting) _cancelled = true;
     setStatus(CoreStatus.stopping);
     process.kill();
     await process.exitCode.timeout(const Duration(seconds: 5), onTimeout: () {
@@ -313,12 +332,18 @@ class ProcessCoreController extends CoreController {
 /// Android: the core runs inside the app's VpnService; this talks to it over
 /// a method channel and mirrors its state from an event channel.
 class AndroidCoreController extends CoreController {
-  AndroidCoreController({required this.logFile}) {
+  AndroidCoreController({
+    required this.logFile,
+    this.startTimeout = const Duration(seconds: 30),
+  }) {
     _events.receiveBroadcastStream().listen(_onEvent);
   }
 
   /// The file the core is configured to log to; tailed while it runs.
   final File logFile;
+
+  /// How long the service may take to report that the core is up.
+  final Duration startTimeout;
 
   static const _channel = MethodChannel('hea/core');
   static const _events = EventChannel('hea/core/events');
@@ -418,18 +443,35 @@ class AndroidCoreController extends CoreController {
       await logFile.writeAsString('');
       _startTail();
       await _channel.invokeMethod<void>('start', {'config': jsonEncode(config)});
-      const limit = Duration(seconds: 30);
-      await starting.future.timeout(limit, onTimeout: () {
-        throw CoreStartTimeout(limit, '');
+      await starting.future.timeout(startTimeout, onTimeout: () {
+        throw CoreStartTimeout(startTimeout, '');
       });
-    } on PlatformException catch (e) {
+    } on Object catch (e) {
+      // Whatever failed, nothing is left "connecting" for good.
+      _stopTail();
+      if (e is CoreStartTimeout) {
+        // The service may still be bringing the core up, and would have it
+        // running later behind the app's back: it is told to give up.
+        setStatus(CoreStatus.stopping);
+        await _stopService();
+      }
       setStatus(CoreStatus.stopped);
-      throw CoreException(e.message ?? e.code);
-    } on CoreException {
-      setStatus(CoreStatus.stopped);
-      rethrow;
+      if (e is CoreException) rethrow;
+      throw CoreException(e is PlatformException ? e.message ?? e.code : '$e');
     } finally {
       _starting = null;
+    }
+  }
+
+  /// Asks the service to stop and waits for it to say that it has.
+  Future<void> _stopService() async {
+    try {
+      await _channel.invokeMethod<void>('stop');
+    } on Object {
+      // No service to stop, then.
+    }
+    for (var i = 0; i < 100 && status != CoreStatus.stopped; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
 
@@ -438,10 +480,7 @@ class AndroidCoreController extends CoreController {
     if (status == CoreStatus.stopped) return;
     if (status == CoreStatus.starting) _cancelled = true;
     setStatus(CoreStatus.stopping);
-    await _channel.invokeMethod<void>('stop');
-    for (var i = 0; i < 100 && status != CoreStatus.stopped; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
+    await _stopService();
     setStatus(CoreStatus.stopped);
   }
 }

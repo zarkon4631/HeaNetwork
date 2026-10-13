@@ -16,45 +16,74 @@ import 'flags.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-/// Connects, or explains why it cannot and offers the way out.
-Future<void> connectWithPrompts(BuildContext context) async {
+/// Connects (or disconnects), or explains why it cannot and offers the way
+/// out.
+Future<void> connectWithPrompts(BuildContext context) =>
+    _withElevationPrompt(context, (state) => state.toggle());
+
+/// Remakes the connection with the settings as they are now, or explains
+/// why it cannot and offers the way out. The connection in use stays up
+/// while the user decides.
+Future<void> reconnectWithPrompts(BuildContext context) =>
+    _withElevationPrompt(context, (state) => state.reconnect());
+
+/// What the user can do when VPN mode needs rights this copy of the app
+/// does not have.
+enum _WithoutRights { useProxy, restartAsAdmin }
+
+Future<_WithoutRights?> _askAboutRights(BuildContext context) {
+  final s = S.of(context);
+  return showDialog<_WithoutRights>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: const Icon(Icons.admin_panel_settings_outlined),
+      title: Text(s.needAdminTitle),
+      content: SizedBox(width: 420, child: Text(s.needAdminBody)),
+      actionsOverflowButtonSpacing: 4,
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
+        TextButton(
+            onPressed: () => Navigator.pop(context, _WithoutRights.useProxy),
+            child: Text(s.useProxyInstead)),
+        FilledButton(
+            onPressed: () => Navigator.pop(context, _WithoutRights.restartAsAdmin),
+            child: Text(s.restartAsAdmin)),
+      ],
+    ),
+  );
+}
+
+Future<void> _withElevationPrompt(
+    BuildContext context, Future<void> Function(AppState state) attempt) async {
   final state = context.read<AppState>();
   try {
-    await state.toggle();
+    await attempt(state);
   } on ElevationRequired {
     if (!context.mounted) return;
-    final s = S.of(context);
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.admin_panel_settings_outlined),
-        title: Text(s.needAdminTitle),
-        content: SizedBox(width: 420, child: Text(s.needAdminBody)),
-        actionsOverflowButtonSpacing: 4,
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
-          TextButton(
-              onPressed: () => Navigator.pop(context, 'proxy'),
-              child: Text(s.useProxyInstead)),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, 'admin'),
-              child: Text(s.restartAsAdmin)),
-        ],
-      ),
-    );
-    if (choice == 'proxy') {
-      state.updateSettings((st) => st.mode = ConnectionMode.systemProxy);
-      await state.connect();
-    } else if (choice == 'admin') {
-      // The elevated copy takes over; `--elevated` lets it past the
-      // single-instance guard while this one is still closing. Settings are
-      // flushed first so it starts with what is on screen.
-      await state.store.flush();
-      if (win32.shellExecute(Platform.resolvedExecutable,
-          verb: 'runas', args: elevatedArguments(const [], connect: true))) {
-        exit(0);
-      }
+    final choice = await _askAboutRights(context);
+    switch (choice) {
+      case _WithoutRights.useProxy:
+        state.updateSettings((st) => st.mode = ConnectionMode.systemProxy);
+        if (!state.isConnected) {
+          await state.connect();
+        } else if (state.pendingRestart) {
+          // Up already, and something besides the mode was changed.
+          await state.reconnect();
+        }
+      case _WithoutRights.restartAsAdmin:
+        // The elevated copy takes over and connects; `--elevated` lets it
+        // past the single-instance guard while this one is still closing.
+        // A connection in use is taken down first, so that the two do not
+        // share a core, and the settings are flushed so that it starts
+        // with what is on screen.
+        await state.disconnect();
+        await state.store.flush();
+        if (win32.shellExecute(Platform.resolvedExecutable,
+            verb: 'runas', args: elevatedArguments(const [], connect: true))) {
+          exit(0);
+        }
+      case null:
+        break;
     }
   }
 }
