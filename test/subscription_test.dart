@@ -49,6 +49,39 @@ void main() {
       });
     });
 
+    test('a device named in another alphabet still gets its subscription', () async {
+      // What Android reported for a phone its owner had renamed.
+      const d = DeviceIdentity(
+          hwid: 'abc123abc123',
+          os: 'Android',
+          osVersion: '14',
+          model: 'Samsung S24 Ultra пользователя Седой');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      String? seen;
+      server.listen((request) {
+        seen = request.headers.value('X-Device-Model');
+        request.response.write(body([sampleLinks['tuic']!]));
+        request.response.close();
+      });
+
+      // The real HTTP client, which refuses a header it cannot carry.
+      final r = await fetchSubscription('http://127.0.0.1:${server.port}/sub',
+          deviceHeaders: d.headers);
+      expect(r.profiles, hasLength(1));
+      expect(seen, 'Samsung S24 Ultra');
+    });
+
+    test('what is left of such a name is sent, and nothing when nothing is', () {
+      const pc = DeviceIdentity(
+          hwid: 'abc123abc123', os: 'Windows', osVersion: '11 24H2', model: 'ПК-Ивана');
+      expect(pc.headers.containsKey('X-Device-Model'), isFalse);
+      expect(pc.headers['X-Ver-OS'], '11 24H2');
+      const phone = DeviceIdentity(
+          hwid: 'abc123abc123', os: 'Android', osVersion: '15', model: '  Pixel   9\tPro ');
+      expect(phone.headers['X-Device-Model'], 'Pixel 9 Pro');
+    });
+
     test('detection on this machine yields a usable identity', () async {
       final d = await DeviceIdentity.detect(installId: 'install-id-fallback');
       expect(d.hwid, hasLength(32));

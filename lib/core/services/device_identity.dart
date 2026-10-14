@@ -29,12 +29,26 @@ class DeviceIdentity {
   /// Android TV or another big-screen, remote-controlled device.
   final bool isTv;
 
+  /// The headers carrying this identity. HTTP carries printable ASCII only,
+  /// and one letter outside it makes the client refuse the whole request,
+  /// while a device can bear a name in any alphabet: the one its owner gave
+  /// the phone, a computer called "ПК-Ивана". Such a value goes with what
+  /// is left of it, and one with nothing left does not go at all.
   Map<String, String> get headers => {
-        'X-HWID': hwid,
-        'X-Device-OS': os,
-        'X-Ver-OS': osVersion,
-        'X-Device-Model': model,
+        for (final (name, value) in [
+          ('X-HWID', hwid),
+          ('X-Device-OS', os),
+          ('X-Ver-OS', osVersion),
+          ('X-Device-Model', model),
+        ])
+          if (headerText(value) case final text when text.isNotEmpty) name: text,
       };
+
+  /// [value] as an HTTP header can carry it.
+  static String headerText(String value) => value
+      .replaceAll(RegExp(r'[^\x20-\x7E]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(RegExp(r'^[\s\-_.,:;]+|[\s\-_.,:;]+$'), '');
 
   /// Derives the id sent to servers from a raw machine id.
   static String hash(String raw) =>
