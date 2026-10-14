@@ -3,6 +3,12 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.12
+
+- Подписка снова обновляется на устройствах, названных по-русски. С версии 1.0.6 приложение сообщает панели имя устройства, и если в нём были буквы не латиницей (например, «Samsung S24 Ultra пользователя Седой»), загрузка подписки прерывалась ошибкой «Invalid HTTP header field value». Теперь панели передаётся то, что можно передать («Samsung S24 Ultra»), а запрос уходит в любом случае.
+
+English: subscriptions update again on devices named in another alphabet. Since 1.0.6 the app tells the panel the device's name, and a name with non-Latin letters made every subscription update fail with "Invalid HTTP header field value"; what HTTP can carry of the name is sent now, and the request goes out either way.
+
 ## 1.0.11
 
 - «Переподключить» после переключения в режим VPN без прав администратора больше не обрывает соединение: приложение спрашивает, как поступить, а текущее соединение остаётся. Раньше оно разрывалось, и связь пропадала без объяснений.
