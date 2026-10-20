@@ -7,11 +7,14 @@
 @Timeout(Duration(minutes: 10))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/core/config/config_builder.dart';
+import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/models/profile.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/parsers/import_parser.dart';
@@ -648,4 +651,240 @@ void main() {
       print('  ok   $name');
     }
   });
+
+  // MASQUE from a 3x-ui 3.10 JSON subscription: the core hands the traffic
+  // to Xray-core, which speaks MASQUE to an Xray-core server, all started
+  // the way the app starts them.
+  test('MASQUE goes through Xray-core', () async {
+    final xrayPath = '${File(corePath).parent.path}\\xray.exe';
+    if (!File(xrayPath).existsSync()) {
+      markTestSkipped('Xray-core not found at $xrayPath');
+      return;
+    }
+    final pem = await run(['generate', 'tls-keypair', 'localhost']);
+    final blocks = RegExp(r'-----BEGIN ([A-Z ]+)-----[\s\S]+?-----END \1-----')
+        .allMatches(pem)
+        .map((m) => m.group(0)!)
+        .toList();
+    final key = blocks.firstWhere((b) => b.contains('PRIVATE KEY')).split('\n');
+    final cert = blocks.firstWhere((b) => b.contains('CERTIFICATE')).split('\n');
+    // Xray-core trusts a self-signed certificate only by its pinned hash.
+    final der = base64.decode(cert.where((l) => !l.startsWith('-----')).join().trim());
+    final pin = sha256.convert(der).toString();
+
+    final port = await freeUdp();
+    final serverLog = StringBuffer();
+    final server = await startXray({
+      'log': {'loglevel': 'warning'},
+      'inbounds': [
+        {
+          'listen': '127.0.0.1',
+          'port': port,
+          'protocol': 'masque',
+          'settings': {
+            'clients': [
+              {'email': 'ivy@example.test', 'pass': 'pw-ivy'},
+            ],
+            'address': ['10.14.0.1/24'],
+          },
+          'streamSettings': {
+            'network': 'masque',
+            'security': 'tls',
+            'masqueSettings': {'path': '/.well-known/masque/ip/*/*/'},
+            'tlsSettings': {
+              'serverName': 'localhost',
+              'alpn': ['h3'],
+              'certificates': [
+                {'certificate': cert, 'key': key},
+              ],
+            },
+          },
+        },
+      ],
+      // The tunnel does not take loopback addresses; the probe stands in
+      // for a TEST-NET one.
+      'outbounds': [
+        {
+          'protocol': 'freedom',
+          'settings': {'redirect': '127.0.0.1:${probe.port}'},
+        },
+      ],
+    }, xrayPath, tmp, serverLog);
+
+    final profile = parseImportText(
+      jsonEncode({
+        'remarks': 'NL · MASQUE',
+        'outbounds': [
+          {
+            'tag': 'proxy',
+            'protocol': 'masque',
+            'settings': {'address': '127.0.0.1', 'port': port},
+            'streamSettings': {
+              'network': 'masque',
+              'security': 'tls',
+              'masqueSettings': {
+                'path': '/.well-known/masque/ip/*/*/',
+                'user': 'ivy@example.test',
+                'pass': 'pw-ivy',
+              },
+              'tlsSettings': {
+                'serverName': 'localhost',
+                'alpn': ['h3'],
+                'fingerprint': 'chrome',
+                'pinnedPeerCertSha256': pin,
+              },
+            },
+          },
+          {'tag': 'direct', 'protocol': 'freedom', 'settings': {}},
+        ],
+      }),
+      xray: true,
+    ).profiles.single;
+    expect(profile.viaXray, isTrue);
+    await _throughXray('masque', profile, xrayPath, server, serverLog, tmp, probe.port);
+  });
+
+  test('XDRIVE goes through Xray-core', () async {
+    final xrayPath = '${File(corePath).parent.path}\\xray.exe';
+    if (!File(xrayPath).existsSync()) {
+      markTestSkipped('Xray-core not found at $xrayPath');
+      return;
+    }
+    // XDRIVE asks for VLESS encryption; Xray-core makes the pair.
+    final keys = (await Process.run(xrayPath, ['vlessenc'])).stdout as String;
+    String field(String name) =>
+        RegExp('"$name": "([^"]+)"').firstMatch(keys)!.group(1)!;
+    // The "local" storage: both ends share a folder instead of a Drive.
+    final folder = Directory('${tmp.path}\\xdrive')..createSync();
+    final storage = {
+      'service': 'local',
+      'remoteFolder': folder.path.replaceAll('\\', '/'),
+      'pollIntervalMs': 50,
+    };
+    final serverLog = StringBuffer();
+    final serverPort = await freeTcp();
+    final server = await startXray({
+      'log': {'loglevel': 'info'},
+      'inbounds': [
+        {
+          'listen': '127.0.0.1',
+          'port': serverPort,
+          'protocol': 'vless',
+          'settings': {
+            'clients': [
+              {'id': uuid},
+            ],
+            'decryption': field('decryption'),
+          },
+          'streamSettings': {
+            'network': 'xdrive',
+            'security': 'none',
+            'xdriveSettings': storage,
+          },
+        },
+      ],
+      'outbounds': [
+        {
+          'protocol': 'freedom',
+          // An XDRIVE server refuses private and loopback targets unless told.
+          'settings': {'redirect': '127.0.0.1:${probe.port}', 'finalRules': [{'action': 'allow'}]},
+        },
+      ],
+    }, xrayPath, tmp, serverLog);
+
+    final profile = parseImportText(
+      jsonEncode({
+        'remarks': 'DE · Drive',
+        'outbounds': [
+          {
+            'tag': 'proxy',
+            'protocol': 'vless',
+            'settings': {
+              // As the panel writes it: the inbound's own address and port.
+              'address': '127.0.0.1',
+              'port': serverPort,
+              'id': uuid,
+              'encryption': field('encryption'),
+              'level': 8,
+            },
+            'streamSettings': {
+              'network': 'xdrive',
+              'security': 'none',
+              'xdriveSettings': storage,
+            },
+            // The panel sends its mux with every config; XDRIVE needs it.
+            'mux': {'enabled': true, 'concurrency': 8},
+          },
+          {'tag': 'direct', 'protocol': 'freedom', 'settings': {}},
+        ],
+      }),
+      xray: true,
+    ).profiles.single;
+    expect(profile.viaXray, isTrue);
+    await _throughXray('xdrive', profile, xrayPath, server, serverLog, tmp, probe.port);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+}
+
+/// Connects the way the app does through [profile], a server only Xray-core
+/// reaches, and pushes a request through it to the probe behind [server].
+Future<void> _throughXray(String name, ProxyProfile profile, String xrayPath, Process server,
+    StringBuffer serverLog, Directory tmp, int probePort) async {
+  {
+    final mixedPort = await freeTcp();
+    final runDir = Directory('${tmp.path}\\xray-$name')..createSync();
+    final core = ProcessCoreController(corePath: corePath, xrayPath: xrayPath, runDir: runDir);
+    try {
+      await core.start(buildConfig(
+        profile: profile,
+        settings: AppSettings(
+            mode: ConnectionMode.systemProxy, mixedPort: mixedPort, logLevel: 'debug'),
+        routing: RoutingSettings(),
+        env: BuildEnv(
+          platform: CorePlatform.windows,
+          ruleSetDir: '${Directory.current.path}/assets/rulesets',
+          cacheFile: '${runDir.path}/cache.db'.replaceAll('\\', '/'),
+          clashPort: await freeTcp(),
+          clashSecret: 'x',
+          corePath: corePath,
+          xrayPath: xrayPath,
+          xrayPort: await freeTcp(),
+        ),
+      ));
+      final http = HttpClient()
+        ..findProxy = ((_) => 'PROXY 127.0.0.1:$mixedPort')
+        ..connectionTimeout = const Duration(seconds: 10);
+      try {
+        final req = await http
+            .getUrl(Uri.parse('http://$probeIp:$probePort/probe'))
+            .timeout(const Duration(seconds: 30));
+        final res = await req.close().timeout(const Duration(seconds: 30));
+        final body = await res.transform(utf8.decoder).join();
+        expect('${res.statusCode} $body', '200 hea-ok',
+            reason: 'client log:\n${core.logs.join('\n')}\nserver log:\n$serverLog');
+      } on TimeoutException catch (e) {
+        fail('$name: $e\nclient log:\n${core.logs.join('\n')}\nserver log:\n$serverLog');
+      } finally {
+        http.close(force: true);
+      }
+      expect(core.logs.any((l) => l.startsWith('xray: ')), isTrue,
+          reason: 'Xray-core speaks in the same log');
+    } finally {
+      await core.stop();
+      server.kill();
+      await server.exitCode;
+    }
+    // Stopping the core stops Xray-core with it.
+    expect(File('${runDir.path}\\xray.pid').existsSync(), isFalse);
+  }
+}
+
+Future<Process> startXray(Map<String, dynamic> config, String xrayPath, Directory dir,
+    StringBuffer log) async {
+  final file = File('${dir.path}\\xray-server.json');
+  await file.writeAsString(jsonEncode(config));
+  final p = await Process.start(xrayPath, ['run', '-c', file.path]);
+  p.stdout.transform(utf8.decoder).listen(log.write);
+  p.stderr.transform(utf8.decoder).listen(log.write);
+  await Future<void>.delayed(const Duration(seconds: 1));
+  return p;
 }

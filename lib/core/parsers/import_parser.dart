@@ -124,7 +124,7 @@ ProxyProfile? _fromSingBoxOutbound(Map<String, dynamic> raw) {
   return profile;
 }
 
-ImportResult _fromJson(Object? json) {
+ImportResult _fromJson(Object? json, {bool xray = false}) {
   final result = ImportResult();
   void addAll(Object? list) {
     if (list is! List) return;
@@ -153,6 +153,12 @@ ImportResult _fromJson(Object? json) {
           result.profiles.add(p);
         }
       } on UnsupportedException catch (e) {
+        // What the core has no protocol or transport for, Xray may have.
+        final p = xray ? xrayProfileFromConfig(map) : null;
+        if (p != null) {
+          result.profiles.add(p);
+          continue;
+        }
         result.errors.add(name.isEmpty ? e.message : '$name: ${e.message}');
         result.skipped.add(SkippedServer(name, e.what));
       } on LinkParseException catch (e) {
@@ -191,7 +197,10 @@ String _linkName(String link) {
 /// Parses clipboard text, a file or a subscription body: share links (one
 /// per line, optionally base64-wrapped), a WireGuard/AmneziaWG `.conf`, a
 /// sing-box JSON config, or a subscription URL.
-ImportResult parseImportText(String input, {bool allowBase64 = true}) {
+///
+/// With [xray] a server of an Xray config that the core cannot connect to
+/// is kept as one for Xray-core ([Protocol.xray]) instead of skipped.
+ImportResult parseImportText(String input, {bool allowBase64 = true, bool xray = false}) {
   final text = input.trim().replaceFirst('\uFEFF', '');
   if (text.isEmpty) return ImportResult();
 
@@ -205,7 +214,7 @@ ImportResult parseImportText(String input, {bool allowBase64 = true}) {
 
   if (text.startsWith('{') || text.startsWith('[')) {
     try {
-      return _fromJson(jsonDecode(text));
+      return _fromJson(jsonDecode(text), xray: xray);
     } on FormatException {
       return ImportResult(errors: ['invalid JSON']);
     }
@@ -217,7 +226,7 @@ ImportResult parseImportText(String input, {bool allowBase64 = true}) {
 
   if (allowBase64 && !text.contains('://')) {
     final decoded = tryBase64(text);
-    if (decoded != null) return parseImportText(decoded, allowBase64: false);
+    if (decoded != null) return parseImportText(decoded, allowBase64: false, xray: xray);
   }
 
   final result = ImportResult();

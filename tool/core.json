@@ -6,6 +6,12 @@
     "asset": "sing-box-1.14.3-extended-2.7.3-windows-amd64.zip",
     "sha256": "ab7a7bddd51524854b853da1e72a8b94626d56aee0acfca46239146df6c099c7"
   },
+  "xray": {
+    "repo": "XTLS/Xray-core",
+    "tag": "v26.10.17",
+    "asset": "Xray-windows-64.zip",
+    "sha256": "c10a532a9271964f2aa2f4b4c0757605ff529222cb1d5d7ab88f8ecc52e67fb0"
+  },
   "rule_sets": {
     "geosite-category-ru": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
     "geoip-ru": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",

@@ -112,6 +112,10 @@ class AppState extends ChangeNotifier {
   final Future<bool> Function()? tunnelCheck;
 
   bool get isWindows => platform == CorePlatform.windows;
+
+  /// Xray-core ships next to the core (Windows): servers only it can reach,
+  /// MASQUE and XDRIVE, are kept instead of skipped.
+  bool get xrayAvailable => isWindows && paths.xrayPath != null;
   bool get isAndroid => platform == CorePlatform.android;
 
   /// A TV: driven by a remote, viewed from across the room.
@@ -375,6 +379,7 @@ class AppState extends ChangeNotifier {
     required int clashPort,
     required String clashSecret,
     int? mixedPort,
+    int? xrayPort,
     bool plainRouting = false,
   }) =>
       buildConfig(
@@ -396,6 +401,8 @@ class AppState extends ChangeNotifier {
           clashSecret: clashSecret,
           elevated: elevated,
           corePath: paths.corePath,
+          xrayPath: paths.xrayPath,
+          xrayPort: xrayPort,
           mixedPort: mixedPort,
           ruleSets: plainRouting ? const {} : _ruleSets,
           logFile: isAndroid ? paths.coreLog.path : null,
@@ -469,6 +476,7 @@ class AppState extends ChangeNotifier {
     try {
       final mixedPort = await freeTcpPort(settings.mixedPort);
       final clashPort = await freeTcpPort();
+      final xrayPort = profile.viaXray ? await freeTcpPort() : null;
       final secret = newApiSecret();
       // The config of this connection, as the settings are when it is asked
       // for; [plain] leaves the routing rules out of it.
@@ -476,6 +484,7 @@ class AppState extends ChangeNotifier {
           clashPort: clashPort,
           clashSecret: secret,
           mixedPort: mixedPort,
+          xrayPort: xrayPort,
           plainRouting: plain);
 
       pendingRestart = false;
@@ -847,7 +856,7 @@ class AppState extends ChangeNotifier {
       unawaited(_fetchPanelRuleSets());
       return ImportOutcome(routing: profile ?? PanelRouting());
     }
-    final parsed = parseImportText(text);
+    final parsed = parseImportText(text, xray: xrayAvailable);
     if (parsed.subscriptionUrl != null) {
       try {
         final sub = await addSubscription(parsed.subscriptionUrl!);
@@ -909,6 +918,7 @@ class AppState extends ChangeNotifier {
       url,
       client: httpClient,
       userAgent: 'HeaNetwork/$appVersion',
+      xray: xrayAvailable,
       deviceHeaders: {
         if (identify) ...?device?.headers,
         if (identify) ...addressHeaders(await publicIp?.current()),

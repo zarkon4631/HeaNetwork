@@ -140,7 +140,8 @@ Future<void> tcpPingAll(
   Future<void> worker() async {
     while (queue.isNotEmpty) {
       final p = queue.removeLast();
-      if (p.isUdpBased || p.server.isEmpty || p.port == 0) {
+      // XDRIVE goes through file storage: the address says nothing.
+      if (p.isUdpBased || p.server.isEmpty || p.port == 0 || p.xrayNetwork == 'xdrive') {
         onResult(p, null);
         continue;
       }
@@ -172,12 +173,17 @@ Future<void> measureLatency(
   if (mode == PingMode.tcp || urlTest == null) {
     throughServer = [];
     await tcpPingAll(profiles, probe: tcp, onResult: (p, ms) {
-      if (ms == null && urlTest != null) {
+      // The spare core cannot reach a server only Xray-core can.
+      if (ms == null && urlTest != null && !p.viaXray) {
         throughServer.add(p);
       } else {
         onResult(p, ms);
       }
     });
+  }
+  throughServer = [for (final p in throughServer) if (!p.viaXray) p];
+  for (final p in profiles.where((p) => p.viaXray && mode != PingMode.tcp && urlTest != null)) {
+    onResult(p, null);
   }
   if (throughServer.isNotEmpty && urlTest != null) {
     await urlTest(throughServer, onResult);

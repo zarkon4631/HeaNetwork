@@ -131,6 +131,7 @@ Future<SubscriptionResult> fetchSubscription(
   http.Client? client,
   String userAgent = 'HeaNetwork',
   Map<String, String> deviceHeaders = const {},
+  bool xray = false,
 }) async {
   final uri = Uri.tryParse(url.trim());
   if (uri == null || !(uri.isScheme('http') || uri.isScheme('https')) || uri.host.isEmpty) {
@@ -169,7 +170,8 @@ Future<SubscriptionResult> fetchSubscription(
       throw SubscriptionException('server answered ${res.statusCode}');
     }
 
-    final parsed = parseImportText(utf8.decode(res.bodyBytes, allowMalformed: true));
+    final parsed =
+        parseImportText(utf8.decode(res.bodyBytes, allowMalformed: true), xray: xray);
     if (parsed.profiles.isEmpty) {
       if (parsed.skipped.isNotEmpty) {
         throw SubscriptionException(

@@ -2,12 +2,16 @@ import 'dart:io';
 
 /// Where the app keeps its files and finds its bundled pieces.
 class AppPaths {
-  AppPaths({required this.support, this.corePath});
+  AppPaths({required this.support, this.corePath, this.xrayPath});
 
   final Directory support;
 
   /// Core executable (Windows only).
   final String? corePath;
+
+  /// Xray-core executable next to it, for what the core cannot reach
+  /// (Windows only; null when it is not there).
+  final String? xrayPath;
 
   Directory get data => Directory('${support.path}${Platform.pathSeparator}data');
   Directory get run => Directory('${support.path}${Platform.pathSeparator}run');

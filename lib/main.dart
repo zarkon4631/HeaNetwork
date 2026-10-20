@@ -37,7 +37,14 @@ Future<void> main(List<String> args) async {
   final info = await PackageInfo.fromPlatform();
   final support = await getApplicationSupportDirectory();
   final windows = Platform.isWindows;
-  final paths = AppPaths(support: support, corePath: windows ? _findCore() : null);
+  final corePath = windows ? _findCore() : null;
+  final xrayPath = corePath == null
+      ? null
+      : '${File(corePath).parent.path}${Platform.pathSeparator}xray.exe';
+  final paths = AppPaths(
+      support: support,
+      corePath: corePath,
+      xrayPath: xrayPath != null && File(xrayPath).existsSync() ? xrayPath : null);
 
   final store = AppStore(paths.data);
   await store.load();
@@ -58,7 +65,8 @@ Future<void> main(List<String> args) async {
   final state = AppState(
     store: store,
     core: windows
-        ? ProcessCoreController(corePath: paths.corePath!, runDir: paths.run)
+        ? ProcessCoreController(
+            corePath: paths.corePath!, xrayPath: paths.xrayPath, runDir: paths.run)
         : AndroidCoreController(logFile: paths.coreLog),
     platform: windows ? CorePlatform.windows : CorePlatform.android,
     paths: paths,

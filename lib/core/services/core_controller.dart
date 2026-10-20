@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../platform/windows/win32.dart' as win32;
+import '../config/config_builder.dart' show xrayConfigKey;
 import 'clash_api.dart';
 
 enum CoreStatus { stopped, starting, running, stopping }
@@ -95,11 +96,15 @@ abstract class CoreController extends ChangeNotifier {
 class ProcessCoreController extends CoreController {
   ProcessCoreController({
     required this.corePath,
+    this.xrayPath,
     required this.runDir,
     this.startTimeout = const Duration(seconds: 60),
   });
 
   final String corePath;
+
+  /// Xray-core, started next to the core for a server only it can reach.
+  final String? xrayPath;
   final Directory runDir;
 
   /// How long the core may take to become ready. Generous, because the
@@ -107,12 +112,14 @@ class ProcessCoreController extends CoreController {
   /// called off with [stop] at any moment.
   final Duration startTimeout;
   Process? _process;
+  Process? _xray;
   bool _cancelled = false;
 
   /// Completes when the [start] under way has ended, however it ended.
   Future<void>? _starting;
 
   File get _pidFile => File('${runDir.path}\\core.pid');
+  File get _xrayPidFile => File('${runDir.path}\\xray.pid');
 
   /// What the core printed during this run, kept on disk so that a failure
   /// can still be looked into after the app was closed. The run before it
@@ -164,11 +171,83 @@ class ProcessCoreController extends CoreController {
     _logClosed = sink.close().then<void>((_) {}).catchError((Object _) {});
   }
 
-  void _removePidFile() {
+  void _removePidFile([File? file]) {
+    final f = file ?? _pidFile;
     try {
-      if (_pidFile.existsSync()) _pidFile.deleteSync();
+      if (f.existsSync()) f.deleteSync();
     } on FileSystemException {
       // Harmless: killOrphan validates the pid before using it.
+    }
+  }
+
+  /// Stops Xray-core, if it runs. It only ever serves the core.
+  void _stopXray() {
+    final xray = _xray;
+    _xray = null;
+    xray?.kill();
+    _removePidFile(_xrayPidFile);
+  }
+
+  /// Starts Xray-core with [config] and waits until it takes connections
+  /// on its SOCKS port. Its output goes to the log, marked as its own.
+  Future<void> _startXray(Map<String, dynamic> config, List<String> recent) async {
+    final path = xrayPath;
+    if (path == null || !File(path).existsSync()) {
+      throw CoreException('Xray-core not found next to the core');
+    }
+    final file = File('${runDir.path}\\xray.json');
+    await file.writeAsString(jsonEncode(config), flush: true);
+    final process =
+        await Process.start(path, ['run', '-c', file.path], workingDirectory: runDir.path);
+    _xray = process;
+    await _xrayPidFile.writeAsString('${process.pid}');
+    void onLine(String line) {
+      final clean = addLog('xray: ${line.trim()}');
+      if (clean == null) return;
+      _writeLogFile(clean);
+      recent.add(clean);
+      if (recent.length > 40) recent.removeAt(0);
+    }
+
+    const lines = LineSplitter();
+    const decoder = Utf8Decoder(allowMalformed: true);
+    process.stdout.transform(decoder).transform(lines).listen(onLine, onError: (_) {});
+    process.stderr.transform(decoder).transform(lines).listen(onLine, onError: (_) {});
+    var exited = false;
+    unawaited(process.exitCode.then((_) async {
+      exited = true;
+      if (_xray != process) return;
+      _xray = null;
+      _removePidFile(_xrayPidFile);
+      // Without Xray-core the core has nowhere to send the traffic.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      if (status == CoreStatus.running) {
+        lastError = summarizeCoreFailure(recent);
+        _process?.kill();
+      }
+    }));
+
+    final inbounds = config['inbounds'];
+    final port = inbounds is List && inbounds.isNotEmpty && inbounds.first is Map
+        ? ((inbounds.first as Map)['port'] as num?)?.toInt() ?? 0
+        : 0;
+    const limit = Duration(seconds: 20);
+    final deadline = DateTime.now().add(limit);
+    while (true) {
+      if (_cancelled) throw CoreCancelled();
+      if (exited) {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        throw CoreException(summarizeCoreFailure(recent));
+      }
+      try {
+        final s = await Socket.connect(InternetAddress.loopbackIPv4, port,
+            timeout: const Duration(milliseconds: 300));
+        s.destroy();
+        return;
+      } on SocketException {
+        if (DateTime.now().isAfter(deadline)) throw CoreStartTimeout(limit, 'Xray-core');
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
     }
   }
 
@@ -197,6 +276,17 @@ class ProcessCoreController extends CoreController {
     } on Object {
       // Nothing useful to do about a stale pid file we cannot read.
     }
+    final xray = xrayPath;
+    try {
+      if (xray == null || !_xrayPidFile.existsSync()) return;
+      final pid = int.tryParse(_xrayPidFile.readAsStringSync().trim());
+      if (pid != null && win32.processPath(pid)?.toLowerCase() == xray.toLowerCase()) {
+        Process.killPid(pid);
+      }
+      _xrayPidFile.deleteSync();
+    } on Object {
+      // As above.
+    }
   }
 
   @override
@@ -204,6 +294,8 @@ class ProcessCoreController extends CoreController {
     if (status != CoreStatus.stopped) {
       throw CoreException('the core is already running');
     }
+    config = Map.of(config);
+    final xray = config.remove(xrayConfigKey);
     if (!File(corePath).existsSync()) {
       throw CoreException('core not found: $corePath');
     }
@@ -222,6 +314,8 @@ class ProcessCoreController extends CoreController {
       // here, and once more right after the launch.
       if (_cancelled) throw CoreCancelled();
       _openLogFile();
+      final recent = <String>[];
+      if (xray is Map) await _startXray(Map<String, dynamic>.from(xray), recent);
 
       final process = await Process.start(
         corePath,
@@ -233,7 +327,6 @@ class ProcessCoreController extends CoreController {
       await _pidFile.writeAsString('${process.pid}');
 
       final started = Completer<void>();
-      final recent = <String>[];
       void onLine(String line) {
         final clean = addLog(line);
         if (clean == null) return;
@@ -264,6 +357,7 @@ class ProcessCoreController extends CoreController {
           lastError = summarizeCoreFailure(recent);
         }
         _removePidFile();
+        _stopXray();
         _closeLogFile();
         setStatus(CoreStatus.stopped);
       }));
@@ -292,6 +386,7 @@ class ProcessCoreController extends CoreController {
     } on Object catch (e) {
       _process?.kill();
       _process = null;
+      _stopXray();
       _closeLogFile();
       _removePidFile();
       setStatus(CoreStatus.stopped);
@@ -312,6 +407,7 @@ class ProcessCoreController extends CoreController {
       // Nothing runs. Or [start] has not launched the process yet: it sees
       // the flag and gives up, before the launch or right after it.
       await _starting;
+      _stopXray();
       setStatus(CoreStatus.stopped);
       return;
     }
@@ -321,6 +417,7 @@ class ProcessCoreController extends CoreController {
       process.kill(ProcessSignal.sigkill);
       return -1;
     });
+    _stopXray();
     // The exit handler above flips the status; wait for it to settle.
     for (var i = 0; i < 20 && status != CoreStatus.stopped; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -432,6 +529,10 @@ class AndroidCoreController extends CoreController {
   Future<void> start(Map<String, dynamic> config) async {
     if (status != CoreStatus.stopped) {
       throw CoreException('the VPN is already running');
+    }
+    // Xray-core is not shipped on Android.
+    if (config.containsKey(xrayConfigKey)) {
+      throw CoreException('this server needs Xray-core, which is Windows-only');
     }
     lastError = null;
     _cancelled = false;

@@ -152,26 +152,71 @@ const _plumbing = {'freedom', 'blackhole', 'dns', 'loopback'};
 /// [UnsupportedException] when it names one the core cannot connect to
 /// (MASQUE, the XDRIVE transport): that server is skipped, and no other
 /// outbound of the config is taken in its place.
-ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
+const _supported = {
+  'vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http', 'hysteria',
+  'wireguard',
+};
+
+bool _usable(Map<String, dynamic> o) => _supported.contains(o['protocol']);
+
+/// The outbound of [config] that is the server: the one tagged `proxy`,
+/// else the first the core can use, else the first that is not plumbing.
+Map<String, dynamic>? _serverOutbound(Map<String, dynamic> config) {
   final outbounds = (config['outbounds'] as List? ?? const [])
       .whereType<Map>()
       .map(Map<String, dynamic>.from)
       .toList();
-  const supported = {
-    'vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http', 'hysteria',
-    'wireguard',
-  };
-  bool usable(Map<String, dynamic> o) => supported.contains(o['protocol']);
   final o = outbounds.where((o) => o['tag'] == 'proxy').firstOrNull ??
-      outbounds.where(usable).firstOrNull ??
+      outbounds.where(_usable).firstOrNull ??
       outbounds
           .where((o) => o['protocol'] is String && !_plumbing.contains(o['protocol']))
           .firstOrNull;
-  if (o == null) return null;
-  if (!usable(o)) {
-    if (o['protocol'] is! String || _plumbing.contains(o['protocol'])) return null;
-    throw UnsupportedException('protocol:${o['protocol']}');
+  if (o == null || o['protocol'] is! String || _plumbing.contains(o['protocol'])) {
+    return null;
   }
+  return o;
+}
+
+/// The server of [config] as one Xray-core connects to, for what the core
+/// cannot do itself (MASQUE, XDRIVE). The panel's outbound is kept as it
+/// came; only what points elsewhere in its own config is dropped.
+ProxyProfile? xrayProfileFromConfig(Map<String, dynamic> config) {
+  final o = _serverOutbound(config);
+  if (o == null) return null;
+  final xray = jsonDecode(jsonEncode(o)) as Map<String, dynamic>..remove('tag');
+  final stream = _map(xray['streamSettings']);
+  if (stream != null) {
+    final sockopt = _map(stream['sockopt']);
+    if (sockopt != null) stream['sockopt'] = sockopt..remove('dialerProxy');
+    // Xray-core 26.10 refuses to start with allowInsecure at all; a panel
+    // host can still send it. Without it the certificate is checked.
+    final tls = _map(stream['tlsSettings']);
+    if (tls != null) stream['tlsSettings'] = tls..remove('allowInsecure');
+    xray['streamSettings'] = stream;
+  }
+  xray.remove('proxySettings');
+
+  final settings = _map(xray['settings']) ?? const {};
+  final endpoint = _first(settings['vnext']) ?? _first(settings['servers']) ?? settings;
+  final host = _str(endpoint['address']);
+  final port = _int(endpoint['port']);
+  final remark = _str(config['remarks']).trim();
+  return ProxyProfile(
+    name: remark.isNotEmpty ? remark : (host.isEmpty ? 'Xray' : '$host:$port'),
+    type: Protocol.xray,
+    outbound: {
+      'type': 'xray',
+      if (host.isNotEmpty) 'server': host,
+      if (port > 0) 'server_port': port,
+      'xray': xray,
+    },
+  );
+}
+
+ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
+  final o = _serverOutbound(config);
+  if (o == null) return null;
+  if (!_usable(o)) throw UnsupportedException('protocol:${o['protocol']}');
 
   final protocol = o['protocol'] as String;
   final settings = _map(o['settings']) ?? const {};

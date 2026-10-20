@@ -3,6 +3,15 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.14
+
+- MASQUE и XDRIVE из 3x-ui 3.10 на Windows: такие серверы теперь подключаются через Xray-core 26.10.17. Он поставляется вместе с приложением и запускается только для этих серверов, остальные работают как раньше. Панель отдаёт MASQUE и XDRIVE только в JSON-подписке: добавьте в приложение её ссылку.
+- На Android такие серверы пока не поддерживаются и, как прежде, названы под подпиской.
+- Задержку до серверов MASQUE и XDRIVE приложение не измеряет, а его защита от блокировок к ним не применяется: Xray-core делает то, что задано в панели.
+- Если панель присылает для такого сервера allowInsecure, приложение его убирает: Xray-core 26.10 с ним не запускается. Сертификат сервера проверяется.
+
+English: MASQUE and XDRIVE servers from 3x-ui 3.10 connect on Windows through Xray-core 26.10.17, shipped with the app and started only for them (the panel serves them in its JSON subscription only); Android still lists them as left out. Their latency is not measured and the app's anti-DPI measures do not apply to them; an allowInsecure the panel sends for them is dropped, since Xray-core 26.10 refuses to start with it.
+
 ## 1.0.13
 
 - Ядро обновлено до sing-box-extended 2.7.3 (sing-box 1.14.3): исправления XHTTP, перенесённые из Xray, и обновления WireGuard, Sudoku и MTProxy.

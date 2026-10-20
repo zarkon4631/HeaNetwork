@@ -95,6 +95,9 @@ jobs:
           New-Item -ItemType Directory -Force "$out/core" | Out-Null
           Copy-Item .cache/core/sing-box.exe "$out/core/"
           Copy-Item .cache/core/LICENSE-sing-box.txt "$out/core/"
+          # Xray-core, for the servers only it can reach (MASQUE, XDRIVE).
+          Copy-Item .cache/core/xray.exe "$out/core/"
+          Copy-Item .cache/core/LICENSE-xray.txt "$out/core/"
           Copy-Item LICENSE "$out/LICENSE.txt"
 
           # Without these DLLs the app does not start on a clean Windows.
@@ -111,6 +114,8 @@ jobs:
         run: |
           & build/windows/x64/runner/Release/core/sing-box.exe version
           if ($LASTEXITCODE -ne 0) { throw "bundled core does not run" }
+          & build/windows/x64/runner/Release/core/xray.exe version
+          if ($LASTEXITCODE -ne 0) { throw "bundled Xray-core does not run" }
       - name: Package
         shell: pwsh
         run: |

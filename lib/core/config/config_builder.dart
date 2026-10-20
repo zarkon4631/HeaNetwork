@@ -17,6 +17,8 @@ class BuildEnv {
     required this.clashSecret,
     this.elevated = false,
     this.corePath,
+    this.xrayPath,
+    this.xrayPort,
     this.mixedPort,
     this.ruleSets,
     this.logFile,
@@ -40,6 +42,13 @@ class BuildEnv {
   /// Path of the core executable, used to keep helper core instances out of
   /// the tunnel.
   final String? corePath;
+
+  /// Xray-core, for a server only it can reach: its own traffic must not
+  /// come back into the tunnel.
+  final String? xrayPath;
+
+  /// The local SOCKS port Xray-core takes the core's traffic on.
+  final int? xrayPort;
 
   /// Overrides the configured mixed port, e.g. when it is already taken.
   final int? mixedPort;
@@ -74,6 +83,38 @@ const tunAddress4 = '172.29.117.1/30';
 const tunPeer4 = '172.29.117.2';
 
 String profileTag(ProxyProfile p) => 'p-${p.id}';
+
+/// Where [buildConfig] puts the configuration of Xray-core when the server
+/// needs it. The core controller takes it out before the core sees it.
+const xrayConfigKey = 'heanetwork_xray';
+
+/// Xray-core's log levels for the app's ones.
+String _xrayLogLevel(String level) => switch (level) {
+      'trace' || 'debug' => 'debug',
+      'info' => 'info',
+      'warn' => 'warning',
+      _ => 'error',
+    };
+
+/// The configuration of Xray-core for [profile]: a SOCKS inbound on
+/// loopback [port] for the core, and the panel's outbound as it came.
+Map<String, dynamic> buildXrayConfig(ProxyProfile profile, int port,
+        {String logLevel = 'warn'}) =>
+    {
+      'log': {'loglevel': _xrayLogLevel(logLevel)},
+      'inbounds': [
+        {
+          'tag': 'core',
+          'listen': '127.0.0.1',
+          'port': port,
+          'protocol': 'socks',
+          'settings': {'auth': 'noauth', 'udp': true, 'ip': '127.0.0.1'},
+        },
+      ],
+      'outbounds': [
+        {...?profile.xrayOutbound, 'tag': 'proxy'},
+      ],
+    };
 
 /// Returns [profile]'s outbound with the anti-DPI options merged in.
 /// TLS tricks only make sense for TLS over TCP, so UDP-based protocols and
@@ -227,9 +268,20 @@ Map<String, dynamic> buildConfig({
 }) {
   final plan = _Plan(profile, settings, routing, env, panel);
 
-  final proxy = hardenOutbound(profile, settings.antiDpi,
-      elevated: env.elevated, platform: env.platform)
-    ..['tag'] = tagProxy;
+  // A server only Xray-core reaches: the core hands it the traffic over
+  // SOCKS on loopback, and Xray-core speaks to the server.
+  final xrayPort = env.xrayPort ?? 0;
+  final proxy = profile.viaXray
+      ? <String, dynamic>{
+          'type': 'socks',
+          'tag': tagProxy,
+          'server': '127.0.0.1',
+          'server_port': xrayPort,
+          'version': '5',
+        }
+      : (hardenOutbound(profile, settings.antiDpi,
+          elevated: env.elevated, platform: env.platform)
+        ..['tag'] = tagProxy);
   final inbounds = plan.inbounds();
   // The rules before anything that lists the site lists: they name them.
   final rules = plan.routeRules();
@@ -275,6 +327,8 @@ Map<String, dynamic> buildConfig({
         'secret': env.clashSecret,
       },
     },
+    if (profile.viaXray)
+      xrayConfigKey: buildXrayConfig(profile, xrayPort, logLevel: settings.logLevel),
   };
 }
 
@@ -411,6 +465,14 @@ class _Plan {
 
   List<Map<String, dynamic>> routeRules() {
     final rules = <Map<String, dynamic>>[
+      // Xray-core's own traffic, its DNS included, goes straight out: through
+      // the tunnel it would come back to itself.
+      if (profile.viaXray && env.platform == CorePlatform.windows && env.xrayPath != null)
+        {
+          'process_path': [env.xrayPath],
+          'action': 'route',
+          'outbound': tagDirect,
+        },
       {'action': 'sniff'},
       {
         'type': 'logical',
@@ -567,7 +629,8 @@ Map<String, dynamic> buildLatencyTestConfig({
     {'type': 'direct', 'tag': tagDirect},
   ];
   final endpoints = <Map<String, dynamic>>[];
-  for (final p in profiles) {
+  // Xray-only servers are not measured through the core.
+  for (final p in profiles.where((p) => !p.viaXray)) {
     final o = hardenOutbound(p, antiDpi, elevated: elevated, platform: platform)
       ..['tag'] = profileTag(p);
     (p.isEndpoint ? endpoints : outbounds).add(o);

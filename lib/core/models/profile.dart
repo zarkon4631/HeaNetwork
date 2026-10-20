@@ -17,6 +17,10 @@ abstract final class Protocol {
   static const http = 'http';
   static const socks = 'socks';
 
+  /// A server only Xray-core can reach (MASQUE, the XDRIVE transport). Not
+  /// in [all]: such a server comes from a subscription, never by hand.
+  static const xray = 'xray';
+
   static const all = [
     vless, vmess, trojan, shadowsocks, wireguard, amneziawg,
     hysteria, hysteria2, tuic, http, socks,
@@ -34,6 +38,7 @@ abstract final class Protocol {
         tuic => 'TUIC',
         http => 'HTTP',
         socks => 'SOCKS',
+        xray => 'Xray',
         _ => type,
       };
 }
@@ -73,6 +78,21 @@ class ProxyProfile {
 
   bool get isEndpoint => outbound['type'] == 'wireguard';
 
+  /// Reached through Xray-core: [outbound] keeps the panel's own Xray
+  /// outbound under `xray`, with `server` and `server_port` beside it.
+  bool get viaXray => type == Protocol.xray;
+
+  Map<String, dynamic>? get xrayOutbound {
+    final x = outbound['xray'];
+    return viaXray && x is Map ? Map<String, dynamic>.from(x) : null;
+  }
+
+  /// The Xray transport of such a server: `masque`, `xdrive`, `tcp`...
+  String? get xrayNetwork {
+    final stream = xrayOutbound?['streamSettings'];
+    return stream is Map ? stream['network'] as String? : null;
+  }
+
   String get server {
     if (isEndpoint) {
       final peers = outbound['peers'];
@@ -102,8 +122,17 @@ class ProxyProfile {
       type == Protocol.hysteria ||
       type == Protocol.hysteria2 ||
       type == Protocol.tuic ||
+      // MASQUE rides on HTTP/3 unless the server asks for HTTP/2 only.
+      (viaXray && xrayOutbound?['protocol'] == 'masque' && !_xrayHttp2Only) ||
       transportType == 'quic' ||
       transportType == 'mkcp';
+
+  bool get _xrayHttp2Only {
+    final stream = xrayOutbound?['streamSettings'];
+    final tls = stream is Map ? stream['tlsSettings'] : null;
+    final alpn = tls is Map ? tls['alpn'] : null;
+    return alpn is List && alpn.isNotEmpty && !alpn.contains('h3');
+  }
 
   String? get transportType {
     final t = outbound['transport'];
@@ -122,6 +151,16 @@ class ProxyProfile {
 
   /// Short human summary, e.g. "VLESS · Reality · XHTTP".
   String get summary {
+    if (viaXray) {
+      final protocol = '${xrayOutbound?['protocol'] ?? ''}';
+      final network = xrayNetwork;
+      return [
+        protocol == 'masque' ? 'MASQUE' : Protocol.label(protocol),
+        if (network != null && network != protocol && network != 'tcp' && network != 'raw')
+          network.toUpperCase(),
+        'Xray',
+      ].join(' · ');
+    }
     final parts = <String>[Protocol.label(type)];
     if (isReality) {
       parts.add('Reality');
