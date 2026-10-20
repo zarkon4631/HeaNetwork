@@ -302,7 +302,13 @@ void main() {
       // after the state has been disposed of, as it may when a window is
       // closed (or a test has finished) while the network is slow.
       final dir = Directory.systemTemp.createTempSync('hea_late_');
-      addTearDown(() => dir.deleteSync(recursive: true));
+      addTearDown(() {
+        try {
+          dir.deleteSync(recursive: true);
+        } on FileSystemException {
+          // Still locked by a pending write; the OS temp cleaner will get it.
+        }
+      });
       final arrives = Completer<void>();
       final state = AppState(
         store: AppStore(Directory('${dir.path}/data')),
