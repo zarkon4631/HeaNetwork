@@ -200,6 +200,9 @@ Map<String, dynamic> xhttpExtra(Map<String, dynamic> e) {
   plain('xPaddingPlacement', 'x_padding_placement');
   plain('xPaddingMethod', 'x_padding_method');
   plain('uplinkHTTPMethod', 'uplink_http_method');
+  // Xray and 3x-ui call these sessionID*; older tools dropped the "ID".
+  plain('sessionIDPlacement', 'session_placement');
+  plain('sessionIDKey', 'session_key');
   plain('sessionPlacement', 'session_placement');
   plain('sessionKey', 'session_key');
   plain('seqPlacement', 'seq_placement');
@@ -418,6 +421,12 @@ ProxyProfile parseVmess(String link) {
   };
   if (p['type'] == 'grpc') p['serviceName'] = s('path');
   if (p['type'] == 'kcp') p['seed'] = s('path');
+  if (p['type'] == 'xhttp') {
+    // 3x-ui puts the XHTTP settings straight into the VMess object.
+    p['mode'] = s('mode');
+    p['x_padding_bytes'] = s('x_padding_bytes');
+    p['extra'] = jsonEncode(j);
+  }
   final fm = j['fm'];
   if (fm != null) p['fm'] = fm is String ? fm : jsonEncode(fm);
   applyStream(out, p, host);

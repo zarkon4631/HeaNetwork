@@ -344,6 +344,32 @@ void main() {
       await coreAccepts(p, 'x_padding + pq');
     });
 
+    test('xhttp settings under the names Xray gives them, in vless and vmess links', () async {
+      final extra = Uri.encodeComponent(jsonEncode({
+        'xPaddingBytes': '200-900',
+        'sessionIDPlacement': 'header',
+        'sessionIDKey': 'X-Session',
+      }));
+      final vless = parseLink('vless://$uuid@example.com:443?type=xhttp&path=%2Fx'
+          '&mode=packet-up&security=tls&sni=example.com&extra=$extra#x');
+      // 3x-ui flattens the same settings into the VMess object.
+      final vmess = parseLink('vmess://${base64.encode(utf8.encode(jsonEncode({
+            'v': '2', 'ps': 'vm-x', 'add': 'example.com', 'port': 443, 'id': uuid,
+            'scy': 'auto', 'net': 'xhttp', 'type': 'none', 'path': '/x',
+            'host': 'example.com', 'mode': 'packet-up', 'x_padding_bytes': '200-900',
+            'xPaddingBytes': '200-900', 'sessionIDPlacement': 'header',
+            'sessionIDKey': 'X-Session', 'tls': 'tls', 'sni': 'example.com',
+          })))}');
+      for (final p in [vless, vmess]) {
+        final t = p.outbound['transport'] as Map;
+        expect(t['mode'], 'packet-up', reason: p.name);
+        expect(t['x_padding_bytes'], '200-900', reason: p.name);
+        expect(t['session_placement'], 'header', reason: p.name);
+        expect(t['session_key'], 'X-Session', reason: p.name);
+        await coreAccepts(p, 'xhttp ${p.name}');
+      }
+    });
+
     test('hysteria2 as the panel writes it', () async {
       final p = parseLink(
           'hysteria2://hy-auth@hy.example.com:8443?security=tls&alpn=h3&sni=hy.example.com'

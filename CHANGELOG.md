@@ -3,6 +3,14 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.13
+
+- Ядро обновлено до sing-box-extended 2.7.3 (sing-box 1.14.3): исправления XHTTP, перенесённые из Xray, и обновления WireGuard, Sudoku и MTProxy.
+- XHTTP: настройки места и имени идентификатора сеанса (sessionIDPlacement, sessionIDKey) теперь читаются под теми именами, которые пишут Xray и 3x-ui; раньше они терялись и такой сервер не подключался.
+- Ссылки VMess с XHTTP: режим, заполнение и остальные настройки XHTTP, которые 3x-ui кладёт прямо в ссылку, больше не теряются.
+
+English: the core is now sing-box-extended 2.7.3 (sing-box 1.14.3); XHTTP session settings are read under the names Xray and 3x-ui use (sessionIDPlacement, sessionIDKey); VMess links keep their XHTTP mode, padding and other settings.
+
 ## 1.0.12
 
 - Подписка снова обновляется на устройствах, названных по-русски. С версии 1.0.6 приложение сообщает панели имя устройства, и если в нём были буквы не латиницей (например, «Samsung S24 Ultra пользователя Седой»), загрузка подписки прерывалась ошибкой «Invalid HTTP header field value». Теперь панели передаётся то, что можно передать («Samsung S24 Ultra»), а запрос уходит в любом случае.

@@ -1,10 +1,10 @@
 {
   "repo": "shtorm-7/sing-box-extended",
-  "tag": "v1.14.1-extended-2.7.2",
-  "version": "1.14.1-extended-2.7.2",
+  "tag": "v1.14.3-extended-2.7.3",
+  "version": "1.14.3-extended-2.7.3",
   "windows_amd64": {
-    "asset": "sing-box-1.14.1-extended-2.7.2-windows-amd64.zip",
-    "sha256": "631104caf4b2ee36a74b3ffa8f73f465a5dcc9d03d85e575401b3d1031a5dc52"
+    "asset": "sing-box-1.14.3-extended-2.7.3-windows-amd64.zip",
+    "sha256": "ab7a7bddd51524854b853da1e72a8b94626d56aee0acfca46239146df6c099c7"
   },
   "rule_sets": {
     "geosite-category-ru": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
