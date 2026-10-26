@@ -3,6 +3,13 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.15
+
+- Срочное обновление безопасности: Xray-core, через который на Windows работают серверы MASQUE и XDRIVE, обновлён до 26.10.21. Версию 26.10.17 из прошлого выпуска разработчики Xray отозвали: в ней были корневые сертификаты, через которые проходят цепочки, признанные ненадёжными. Новая версия такие цепочки отвергает.
+- Ядро для Android собрано на Go 1.26.10 и тоже отвергает эти цепочки сертификатов.
+
+English: urgent security update. Xray-core, which carries MASQUE and XDRIVE servers on Windows, is 26.10.21: Xray withdrew 26.10.17, which shipped root certificates over chains that are no longer trusted, and the new version refuses those chains. The Android core is built with Go 1.26.10 and refuses them too.
+
 ## 1.0.14
 
 - MASQUE и XDRIVE из 3x-ui 3.10 на Windows: такие серверы теперь подключаются через Xray-core 26.10.17. Он поставляется вместе с приложением и запускается только для этих серверов, остальные работают как раньше. Панель отдаёт MASQUE и XDRIVE только в JSON-подписке: добавьте в приложение её ссылку.
