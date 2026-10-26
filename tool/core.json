@@ -8,9 +8,9 @@
   },
   "xray": {
     "repo": "XTLS/Xray-core",
-    "tag": "v26.10.17",
+    "tag": "v26.10.21",
     "asset": "Xray-windows-64.zip",
-    "sha256": "c10a532a9271964f2aa2f4b4c0757605ff529222cb1d5d7ab88f8ecc52e67fb0"
+    "sha256": "fc58c39ee2f2717b4c54d28d374362389e5319b20ae44aea76ea45a5243ec827"
   },
   "rule_sets": {
     "geosite-category-ru": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",

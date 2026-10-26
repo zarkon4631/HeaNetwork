@@ -19,8 +19,10 @@ concurrency:
 
 env:
   FLUTTER_VERSION: 3.47.6
-  # Matches the toolchain the pinned core is developed and released with.
-  GO_VERSION: 1.26.8
+  # The toolchain line the pinned core is developed with. At least 1.26.10:
+  # from it on, certificate chains through the eight intermediates Go
+  # distrusted on 2026-10-19 are refused (CVE-2026-111943).
+  GO_VERSION: 1.26.10
   # r28c is the NDK this Flutter release asks for (28.2.13676358), and a patch
   # release of the r28 the core is developed against, so one copy serves both.
   NDK_VERSION: r28c
@@ -167,7 +169,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: android/app/libs/libbox.aar
-          key: libbox-${{ hashFiles('tool/core.json', 'tool/build_libbox.sh') }}
+          # A new Go is a new core too, so it is part of the key.
+          key: libbox-${{ env.GO_VERSION }}-${{ hashFiles('tool/core.json', 'tool/build_libbox.sh') }}
       - uses: actions/setup-go@v5
         if: steps.libbox.outputs.cache-hit != 'true'
         with:
