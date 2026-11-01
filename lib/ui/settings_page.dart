@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/models/settings.dart';
+import '../core/services/diagnostics.dart';
 import '../core/services/updater.dart';
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
@@ -700,6 +701,23 @@ class _LogsPageState extends State<LogsPage> {
               icon: const Icon(Icons.folder_open_rounded),
               onPressed: state.openCoreLogDirectory,
             ),
+          // Everything a support conversation opens with, log included,
+          // with the secrets scrubbed; pastes as one message.
+          IconButton(
+            tooltip: s.copyDiagnostics,
+            icon: const Icon(Icons.bug_report_outlined),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(
+                  text: diagnosticsReport(
+                appVersion: state.appVersion,
+                platformLabel: state.isAndroid ? 'Android' : 'Windows',
+                modeLabel: state.activeMode?.name ?? state.settings.mode.name,
+                statusLabel: state.status.name,
+                log: state.core.logs,
+              )));
+              if (context.mounted) showSnack(context, s.copied);
+            },
+          ),
           IconButton(
             tooltip: s.copy,
             icon: const Icon(Icons.copy_rounded),

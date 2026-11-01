@@ -287,6 +287,8 @@ class S {
   String get logs => _t('Журнал', 'Log');
   String get logsEmpty => _t('Журнал пуст', 'The log is empty');
   String get logLevel => _t('Подробность журнала', 'Log detail');
+  String get copyDiagnostics =>
+      _t('Скопировать диагностику', 'Copy diagnostics');
   String get clear => _t('Очистить', 'Clear');
   String get runningAsAdmin =>
       _t('Запущено с правами администратора', 'Running as administrator');

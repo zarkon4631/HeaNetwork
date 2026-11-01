@@ -853,8 +853,8 @@ class _ErrorCard extends StatelessWidget {
     final s = S.of(context);
     final scheme = Theme.of(context).colorScheme;
     final raw = state.error!;
-    final noServer = raw == AppState.errorNoServer;
-    const timeout = AppState.errorStartTimeout;
+    final noServer = raw == errorNoServer;
+    const timeout = errorStartTimeout;
     final detail = noServer
         ? s.noServerHint
         : (raw.startsWith(timeout)
