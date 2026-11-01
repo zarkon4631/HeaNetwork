@@ -166,7 +166,7 @@ jobs:
       # the pinned version or the build script changes.
       - name: Restore the core library
         id: libbox
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: android/app/libs/libbox.aar
           # A new Go is a new core too, so it is part of the key.
@@ -184,7 +184,7 @@ jobs:
       # Saved right away, so a failure further down does not cost a rebuild.
       - name: Save the core library
         if: steps.libbox.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: android/app/libs/libbox.aar
           key: ${{ steps.libbox.outputs.cache-primary-key }}
