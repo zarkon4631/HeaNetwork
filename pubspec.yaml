@@ -20,7 +20,7 @@ dependencies:
   http: ^1.6.0
   crypto: ^3.0.7
   ffi: ^2.2.0
-  package_info_plus: ^9.0.1
+  package_info_plus: ^10.2.2
   url_launcher: ^6.3.3
   file_selector: ^1.1.0
   qr_flutter: ^4.1.0

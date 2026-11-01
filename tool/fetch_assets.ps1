@@ -1,13 +1,19 @@
 # Downloads what the build needs but the repository does not carry:
 #   - the pinned sing-box-extended core for Windows  -> .cache/core/sing-box.exe
 #   - the routing rule-sets bundled with the app      -> assets/rulesets/*.srs
-# The core archive is verified against the SHA-256 pinned in tool/core.json.
+# The core archive and every rule-set are verified against the SHA-256 pinned
+# in tool/core.json. The SagerNet lists change upstream now and then, so a
+# build fails with a checksum mismatch when they do: check that the upstream
+# change is legitimate, then accept it by re-pinning:
+#
+#   pwsh tool/fetch_assets.ps1 -UpdateRuleSetHashes
 #
 #   pwsh tool/fetch_assets.ps1            # everything
 #   pwsh tool/fetch_assets.ps1 -SkipCore  # rule-sets only (Android builds)
 param(
     [switch]$SkipCore,
-    [switch]$SkipRuleSets
+    [switch]$SkipRuleSets,
+    [switch]$UpdateRuleSetHashes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +35,27 @@ function Get-File($url, $dest) {
             Start-Sleep -Seconds (5 * $try)
         }
     }
+}
+
+if ($UpdateRuleSetHashes) {
+    # Re-pins the rule-set hashes in core.json to what the URLs serve now.
+    # Only run this after making sure the upstream lists changed legitimately.
+    # The file is edited as text so its formatting stays as it was.
+    $path = Join-Path $PSScriptRoot 'core.json'
+    $text = Get-Content $path -Raw
+    foreach ($p in $pin.rule_sets.PSObject.Properties) {
+        $tmp = Join-Path $env:TEMP "$($p.Name).srs"
+        Get-File $p.Value.url $tmp
+        $hash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
+        Remove-Item $tmp -Force
+        $text = $text.Replace("`"$($p.Value.sha256)`"", "`"$hash`"")
+        Write-Host "$($p.Name): $hash"
+    }
+    # WriteAllText keeps the file UTF-8 without a BOM, as it is in git; the
+    # utf8 encoding in Windows PowerShell 5.1 would add one.
+    [System.IO.File]::WriteAllText($path, $text)
+    Write-Host 'core.json now pins the new rule-set hashes'
+    exit 0
 }
 
 if (-not $SkipCore) {
@@ -100,8 +127,12 @@ if (-not $SkipRuleSets) {
     New-Item -ItemType Directory -Force $rsDir | Out-Null
     foreach ($p in $pin.rule_sets.PSObject.Properties) {
         $dest = Join-Path $rsDir "$($p.Name).srs"
-        Write-Host "downloading $($p.Value)"
-        Get-File $p.Value $dest
-        if ((Get-Item $dest).Length -lt 64) { throw "rule-set $($p.Name) looks truncated" }
+        Write-Host "downloading $($p.Value.url)"
+        Get-File $p.Value.url $dest
+        $hash = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
+        if ($hash -ne $p.Value.sha256) {
+            Remove-Item $dest -Force
+            throw "rule-set $($p.Name) checksum mismatch: got $hash, pinned $($p.Value.sha256). If the upstream list changed legitimately, re-pin with -UpdateRuleSetHashes."
+        }
     }
 }

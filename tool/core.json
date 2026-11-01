@@ -13,8 +13,17 @@
     "sha256": "fc58c39ee2f2717b4c54d28d374362389e5319b20ae44aea76ea45a5243ec827"
   },
   "rule_sets": {
-    "geosite-category-ru": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
-    "geoip-ru": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
-    "geosite-category-ads-all": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs"
+    "geosite-category-ru": {
+      "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
+      "sha256": "66d16eaba254233527e9a581a54a19f21385cb6bb9fdbda2dc3d3947facde4f0"
+    },
+    "geoip-ru": {
+      "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
+      "sha256": "bdca5cdb44cdcf0940001e5952386822a6f4ffa8b2c8eea00340aa6f585c7f9d"
+    },
+    "geosite-category-ads-all": {
+      "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+      "sha256": "54ef3a555666779d0083a3921f4b6534898088b2d63846f3ec57c43a5412a86c"
+    }
   }
 }

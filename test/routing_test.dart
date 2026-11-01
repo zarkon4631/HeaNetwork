@@ -368,16 +368,24 @@ void main() {
       await state.importText(happLink({
         'DirectSites': ['geosite:one'],
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // A fixed delay here is flaky: under a loaded test runner the timer
+      // may not get to run within it, the second import would then no longer
+      // overlap the first download, and the race under test never happens.
+      // Wait for the request to actually be in flight instead.
+      for (var i = 0; i < 100 && asked.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(asked, ['geosite-one.srs']);
       await state.importText(happLink({
         'DirectSites': ['geosite:two'],
       }));
       first.complete();
-      for (var i = 0; i < 40 && state.missingPanelRuleSets.isNotEmpty; i++) {
+      for (var i = 0; i < 100 && state.missingPanelRuleSets.isNotEmpty; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
       expect(asked, contains('geosite-two.srs'));
-      expect(state.missingPanelRuleSets, isEmpty);
+      expect(state.missingPanelRuleSets, isEmpty,
+          reason: 'every list named by the profiles was fetched');
     });
   });
 

@@ -1,0 +1,19 @@
+# Automated dependency updates. Pub updates are grouped so minor and patch
+# bumps arrive as one pull request; majors come separately and may need code
+# changes (the tray_manager pin in pubspec.yaml is deliberate, and a Dependabot
+# major pull request can simply be closed when a pin stays).
+version: 2
+updates:
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
