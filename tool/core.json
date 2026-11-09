@@ -15,7 +15,7 @@
   "rule_sets": {
     "geosite-category-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
-      "sha256": "66d16eaba254233527e9a581a54a19f21385cb6bb9fdbda2dc3d3947facde4f0"
+      "sha256": "70dfdbfefc798b0fbee8efd5578b7cdcd155fa208406fbf05921e44a07b0652e"
     },
     "geoip-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
@@ -23,7 +23,7 @@
     },
     "geosite-category-ads-all": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-      "sha256": "54ef3a555666779d0083a3921f4b6534898088b2d63846f3ec57c43a5412a86c"
+      "sha256": "5577fd713d8479b6df9bcfe5832eab9d6d4fd5a34ea5748460618ed30526cb0c"
     }
   }
 }
