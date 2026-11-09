@@ -363,11 +363,38 @@ void main() {
 
       healthy = false;
       final failures = await state.refreshAllSubscriptions();
-      expect(failures.single.code, SubscriptionError.deviceLimit);
+      expect(failures!.single.code, SubscriptionError.deviceLimit);
       expect(failures.single.message, startsWith('Работа:'));
       // The servers that were there stay usable.
       expect(state.profilesOf(sub.id), hasLength(1));
       expect(state.refreshingSubscriptions, isFalse);
+    });
+
+    test('deleting a subscription while its refresh is out does not resurrect it',
+        () async {
+      var calls = 0;
+      final gate = Completer<http.Response>();
+      final state = makeState(
+          populated: false,
+          subscriptionClient: MockClient((req) async {
+            calls++;
+            return calls == 1
+                ? http.Response(body([sampleLinks['tuic']!]), 200)
+                : gate.future;
+          }));
+      final sub = await state.addSubscription('https://panel.example/sub/abc');
+      expect(state.profilesOf(sub.id), hasLength(1));
+
+      // The refresh answer arrives only after the subscription is gone.
+      final refreshing = state.refreshSubscription(sub);
+      await Future<void>.delayed(Duration.zero);
+      state.deleteSubscription(sub);
+      gate.complete(http.Response(body([sampleLinks['tuic']!]), 200));
+      await refreshing;
+
+      expect(state.subscriptions, isEmpty);
+      expect(state.profiles, isEmpty,
+          reason: 'the deleted subscription stays deleted');
     });
 
     // 3x-ui 3.10 serves MASQUE and XDRIVE only in its JSON subscription.

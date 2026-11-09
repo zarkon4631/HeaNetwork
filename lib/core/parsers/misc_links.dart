@@ -12,11 +12,14 @@ void _requireServer(RawLink l, String proto) {
 ProxyProfile parseShadowsocks(String link) {
   var l = RawLink.parse(link);
   if (l.userInfo.isEmpty) {
-    final body = link.substring(5).split('#').first.split('?').first;
-    final decoded = tryBase64(body);
+    // Legacy form: the whole `method:pass@host:port`, base64. The query
+    // (`?plugin=…`) and the fragment stay on, so they are not lost.
+    final noFragment = link.substring(5).split('#').first;
+    final decoded = tryBase64(noFragment.split('?').first);
     if (decoded == null) throw LinkParseException('Shadowsocks: bad link');
-    final suffix = link.contains('#') ? link.substring(link.indexOf('#')) : '';
-    l = RawLink.parse('ss://$decoded$suffix');
+    final suffix = noFragment.contains('?') ? noFragment.substring(noFragment.indexOf('?')) : '';
+    final hash = link.contains('#') ? link.substring(link.indexOf('#')) : '';
+    l = RawLink.parse('ss://$decoded$suffix$hash');
     if (l.userInfo.isEmpty) throw LinkParseException('Shadowsocks: bad link');
   }
   _requireServer(l, 'Shadowsocks');
@@ -81,6 +84,11 @@ ProxyProfile parseHysteria2(String link) {
   final obfs = l.q('obfs');
   if (obfs != null && obfs != 'none') {
     // Gecko is salamander with every packet padded to a size from a range.
+    // Any other name is not an obfuscation the core knows, and a config
+    // carrying it would be refused at start.
+    if (obfs != 'salamander' && obfs != 'gecko') {
+      throw UnsupportedException('obfs:$obfs');
+    }
     final min = int.tryParse(l.q('minPacketSize') ?? '');
     final max = int.tryParse(l.q('maxPacketSize') ?? '');
     out['obfs'] = {

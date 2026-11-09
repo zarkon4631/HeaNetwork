@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -104,6 +103,13 @@ Future<void> _addSubscription(BuildContext context) async {
   final url = await promptText(context,
       title: s.addSubscription, label: s.subscriptionUrl, hint: 'https://…');
   if (url == null || url.isEmpty || !context.mounted) return;
+  // The token rides in the address itself; on plain http it would be there
+  // for every hop to read.
+  if (subscriptionAddress(url).startsWith('http://')) {
+    if (!await confirm(context, s.insecureSubscriptionQ) || !context.mounted) {
+      return;
+    }
+  }
   final state = context.read<AppState>();
   try {
     final sub = await state.addSubscription(url);
@@ -159,7 +165,8 @@ Future<void> _scanQr(BuildContext context) async {
 /// The "add" menu with every way to get a configuration into the app.
 Future<void> showAddServerSheet(BuildContext context) {
   final s = S.of(context);
-  final tv = context.read<AppState>().isTv;
+  final state = context.read<AppState>();
+  final tv = state.isTv;
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -191,7 +198,7 @@ Future<void> showAddServerSheet(BuildContext context) {
               if (tv) receive,
               item(Icons.content_paste_rounded, s.pasteFromClipboard, null,
                   pasteFromClipboard),
-              if (Platform.isAndroid && !tv)
+              if (state.isAndroid && !tv)
                 item(Icons.qr_code_scanner_rounded, s.scanQr, null, _scanQr),
               item(Icons.link_rounded, s.addSubscription, null, _addSubscription),
               if (!tv) receive,
@@ -377,7 +384,7 @@ class ConfigList extends StatelessWidget {
         return;
       }
       final failures = await state.refreshAllSubscriptions();
-      if (!context.mounted) return;
+      if (!context.mounted || failures == null) return;
       showSnack(
           context,
           failures.isEmpty
@@ -648,6 +655,8 @@ class _SelectedSummary extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final label = ServerLabel.of(profile.name);
     final country = label.country;
+    // The testing flag, so a folded group can show the spinner too.
+    final testing = context.select<AppState, bool>((s) => s.testingLatency);
     return Row(
       children: [
         Icon(Icons.radio_button_checked_rounded, size: 14, color: scheme.primary),
@@ -663,7 +672,7 @@ class _SelectedSummary extends StatelessWidget {
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         ),
         const SizedBox(width: 8),
-        LatencyBadge(profile.latencyMs),
+        LatencyBadge(profile.latencyMs, testing: testing),
       ],
     );
   }
@@ -961,6 +970,9 @@ class _ManualProxyDialogState extends State<_ManualProxyDialog> {
   final _pass = TextEditingController();
   final _name = TextEditingController();
 
+  /// Why the dialog cannot accept what is typed, shown on the address.
+  String? _error;
+
   @override
   void dispose() {
     for (final c in [_host, _port, _user, _pass, _name]) {
@@ -970,9 +982,14 @@ class _ManualProxyDialogState extends State<_ManualProxyDialog> {
   }
 
   void _save() {
+    final s = S.of(context);
     final host = _host.text.trim();
     final port = int.tryParse(_port.text.trim()) ?? 0;
-    if (host.isEmpty || port <= 0 || port > 65535) return;
+    if (host.isEmpty || port <= 0 || port > 65535) {
+      // A save button that silently does nothing looks broken.
+      setState(() => _error = s.badAddress);
+      return;
+    }
     final auth = _user.text.isEmpty
         ? ''
         : '${Uri.encodeComponent(_user.text)}:${Uri.encodeComponent(_pass.text)}@';
@@ -984,6 +1001,7 @@ class _ManualProxyDialogState extends State<_ManualProxyDialog> {
       profile = _type == 'socks5' ? parseSocks(link) : parseHttpProxy(link);
     } on LinkParseException {
       // An address no link can carry: the dialog stays open for another try.
+      setState(() => _error = s.badAddress);
       return;
     }
     Navigator.pop(context, profile);
@@ -1018,7 +1036,9 @@ class _ManualProxyDialogState extends State<_ManualProxyDialog> {
                     child: TextField(
                         controller: _host,
                         autofocus: true,
-                        decoration: InputDecoration(labelText: s.host)),
+                        onChanged: (_) => setState(() => _error = null),
+                        decoration: InputDecoration(
+                            labelText: s.host, errorText: _error)),
                   ),
                   const SizedBox(width: 8),
                   Expanded(

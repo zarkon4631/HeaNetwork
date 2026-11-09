@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/config/config_builder.dart';
 import '../core/config/rule_values.dart';
 import '../core/models/profile.dart';
@@ -10,6 +12,7 @@ import '../core/services/clash_api.dart';
 import '../core/services/core_controller.dart';
 import '../core/services/latency_tester.dart';
 import '../core/models/route_traffic.dart';
+import '../platform/windows/elevation.dart';
 import '../platform/windows/win32.dart' as win32;
 import 'app_state_base.dart';
 
@@ -24,6 +27,12 @@ mixin AppStateConnection on AppStateBase {
   /// Why this connection was made without the site rules and the panel's
   /// routing, in the core's words; null while they are in force.
   String? routingProblem;
+
+  /// Bumped on every traffic sample while connected. The live numbers are
+  /// the one thing that changes every second; carrying them on the state
+  /// itself would rebuild every page at that rate, so they ride here and
+  /// only the views that show them listen.
+  final trafficTick = ValueNotifier<int>(0);
 
   /// This connection found the tunnel taking nothing on the configured
   /// network stack and moved to gVisor, which is now the setting.
@@ -108,6 +117,7 @@ mixin AppStateConnection on AppStateBase {
   void disposeConnection() {
     _subscriptionTimer?.cancel();
     _stopStats();
+    trafficTick.dispose();
   }
 
   // ---- connect / disconnect ------------------------------------------------
@@ -126,10 +136,13 @@ mixin AppStateConnection on AppStateBase {
     int? mixedPort,
     int? xrayPort,
     bool plainRouting = false,
+    String? tunStackOverride,
   }) =>
       buildConfig(
         profile: profile,
-        settings: settings,
+        settings: tunStackOverride == null
+            ? settings
+            : (AppSettings.fromJson(settings.toJson())..tunStack = tunStackOverride),
         routing: plainRouting
             ? (RoutingSettings.fromJson(routing.toJson())..domains = [])
             : routing,
@@ -180,6 +193,7 @@ mixin AppStateConnection on AppStateBase {
       final id = note['profileId'];
       if (id is String && profiles.any((p) => p.id == id)) {
         settings.selectedProfileId = id;
+        unawaited(store.saveSettings());
       }
       activeMode = ConnectionMode.tun;
       _clash = ClashApi(port, secret);
@@ -195,13 +209,47 @@ mixin AppStateConnection on AppStateBase {
   /// reports that it is starting.
   DateTime? _connectingSince;
 
+  /// The [connect] under way, if any: a second call waits for it instead of
+  /// piling a second connection onto it.
+  Future<void>? _connecting;
+
+  /// Bumped by [disconnect]. A [connect] that is still mid-flight — waiting
+  /// on the tunnel check, say — checks this at every step and gives up
+  /// instead of bringing the core back up after the user turned it off.
+  int _connectGen = 0;
+
   /// VPN mode on Windows cannot be started by a copy of the app that is not
   /// running as administrator.
   bool get _needsElevation =>
       isWindows && settings.mode == ConnectionMode.tun && !elevated;
 
-  Future<void> connect() async {
-    if (status != CoreStatus.stopped || _connectingSince != null) return;
+  Future<void> connect() {
+    final running = _connecting;
+    if (running != null) return running;
+    // Claimed synchronously: a connect that lands between this and the
+    // first await inside would otherwise start the core a second time.
+    final done = Completer<void>();
+    _connecting = done.future;
+    return _connect(done);
+  }
+
+  Future<void> _connect(Completer<void> done) async {
+    try {
+      await _connectInner();
+    } finally {
+      _connectingSince = null;
+      _connecting = null;
+      done.complete();
+    }
+  }
+
+  Future<void> _connectInner() async {
+    if (status == CoreStatus.stopping) {
+      // A connect that lands while the core is stopping would otherwise be
+      // dropped on the floor. [CoreController.stop] waits for the stop.
+      await core.stop();
+    }
+    if (status != CoreStatus.stopped) return;
     error = null;
     final profile = selectedProfile;
     if (profile == null) {
@@ -212,6 +260,7 @@ mixin AppStateConnection on AppStateBase {
     if (_needsElevation) throw ElevationRequired();
 
     _connectingSince = DateTime.now();
+    final gen = _connectGen;
     var connected = false;
     try {
       final mixedPort = await freeTcpPort(settings.mixedPort);
@@ -219,19 +268,23 @@ mixin AppStateConnection on AppStateBase {
       final xrayPort = profile.viaXray ? await freeTcpPort() : null;
       final secret = newApiSecret();
       // The config of this connection, as the settings are when it is asked
-      // for; [plain] leaves the routing rules out of it.
-      Map<String, dynamic> config({bool plain = false}) => configFor(profile,
-          clashPort: clashPort,
-          clashSecret: secret,
-          mixedPort: mixedPort,
-          xrayPort: xrayPort,
-          plainRouting: plain);
+      // for; [plain] leaves the routing rules out of it, [stack] builds it
+      // with another network stack than the setting says.
+      Map<String, dynamic> config({bool plain = false, String? stack}) =>
+          configFor(profile,
+              clashPort: clashPort,
+              clashSecret: secret,
+              mixedPort: mixedPort,
+              xrayPort: xrayPort,
+              plainRouting: plain,
+              tunStackOverride: stack);
 
       pendingRestart = false;
       appliedFingerprint = coreFingerprint();
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
       await _startDespiteRouting(config);
-      await _leaveDeafStack(config);
+      await _leaveDeafStack(config, gen);
+      if (gen != _connectGen) throw CoreCancelled();
 
       if (isWindows && settings.mode == ConnectionMode.systemProxy) {
         systemProxy?.enable(mixedPort);
@@ -247,9 +300,10 @@ mixin AppStateConnection on AppStateBase {
     } on CoreException catch (e) {
       error = e.message;
     } on Object catch (e) {
+      // Not the core's own complaint: without this line it would be shown to
+      // the user and nowhere else, leaving no way to look into it.
+      debugPrint('HeaNetwork: connect failed: $e');
       error = '$e';
-    } finally {
-      _connectingSince = null;
     }
     if (!connected) {
       activeMode = null;
@@ -299,28 +353,30 @@ mixin AppStateConnection on AppStateBase {
   /// incoming one, and a firewall that blocks incoming connections
   /// (Portmaster does by default) then lets none through: connected, and
   /// nothing works. gVisor needs nothing from the system, so the core is
-  /// started again on it. The setting follows only when that helped;
-  /// otherwise the choice stays the user's.
+  /// started again on it. The retry runs on the overridden stack alone: the
+  /// setting follows only when that helped, so no save in between can make
+  /// the temporary value stick.
   Future<void> _leaveDeafStack(
-      Map<String, dynamic> Function({bool plain}) config) async {
+      Map<String, dynamic> Function({bool plain, String? stack}) config,
+      int gen) async {
     stackSwitched = false;
     if (!await _tunnelTakesNothing()) return;
-    final configured = settings.tunStack;
-    settings.tunStack = 'gvisor';
+    if (gen != _connectGen) throw CoreCancelled();
     var better = false;
     try {
       await core.stop();
+      if (gen != _connectGen) throw CoreCancelled();
       activeMode = settings.mode;
-      await _startCore(config(plain: routingProblem != null));
+      await _startCore(config(plain: routingProblem != null, stack: 'gvisor'));
       better = await tunnelCheck!();
     } finally {
-      if (!better) settings.tunStack = configured;
+      if (better) {
+        stackSwitched = true;
+        settings.tunStack = 'gvisor';
+        configRevision++;
+        unawaited(store.saveSettings());
+      }
       appliedFingerprint = coreFingerprint();
-    }
-    if (better) {
-      stackSwitched = true;
-      configRevision++;
-      unawaited(store.saveSettings());
     }
   }
 
@@ -362,6 +418,9 @@ mixin AppStateConnection on AppStateBase {
   /// Disconnects, or calls off a connection that is still being set up.
   @override
   Future<void> disconnect() async {
+    // Whatever [connect] is still mid-flight stops at its next step instead
+    // of bringing the core back up behind the user's back.
+    final gen = ++_connectGen;
     routingProblem = null;
     stackSwitched = false;
     _stopStats();
@@ -369,11 +428,48 @@ mixin AppStateConnection on AppStateBase {
     await core.stop();
     activeMode = null;
     pendingRestart = false;
+    if (isAndroid) {
+      // The note about the running core is only good while one runs; it
+      // must not outlive the connection it described. (It does survive the
+      // app being killed with the VPN up — which is exactly when a
+      // restarted app needs it — because this path does not run then.)
+      // Not awaited: it is only read long after, at the next attach, and a
+      // connect that starts now writes a note of its own, which this must
+      // not delete from under it.
+      unawaited(() async {
+        if (gen != _connectGen) return;
+        try {
+          if (await _activeFile.exists()) await _activeFile.delete();
+        } on FileSystemException {
+          // Only costs the statistics after the next attach.
+        }
+      }());
+    }
     notifyListeners();
   }
 
   /// A connection is being set up and can be called off.
   bool get canCancel => status == CoreStatus.starting;
+
+  /// Restarts the app with administrator rights and connects; the elevated
+  /// copy takes over and this one goes away.
+  ///
+  /// Asking whether to is the interface's business; the sequence itself is
+  /// app lifecycle policy, so it lives here — every path that runs into
+  /// [ElevationRequired], the tray and autostart included, uses this one.
+  /// `--elevated` lets the new copy past the single-instance guard while
+  /// this one is still closing.
+  Future<void> restartElevated() async {
+    // A connection in use is taken down first, so that the two do not share
+    // a core, and the settings are flushed so that it starts with what is
+    // on screen.
+    await disconnect();
+    await store.flush();
+    if (win32.shellExecute(Platform.resolvedExecutable,
+        verb: 'runas', args: elevatedArguments(const [], connect: true))) {
+      exit(0);
+    }
+  }
 
   /// What the connect button does: connect, disconnect, or call off a
   /// connection in progress.
@@ -397,6 +493,11 @@ mixin AppStateConnection on AppStateBase {
     if (status != CoreStatus.running) return;
     if (_needsElevation) throw ElevationRequired();
     await disconnect();
+    // A [connect] this one just called off may still be finishing; let it
+    // end before a new one starts, or the new one would wait behind it and
+    // do nothing.
+    final windingDown = _connecting;
+    if (windingDown != null) await windingDown;
     await connect();
   }
 
@@ -410,7 +511,7 @@ mixin AppStateConnection on AppStateBase {
       speed = s;
       totalUp += s.up;
       totalDown += s.down;
-      notifyListeners();
+      trafficTick.value++;
     }, onError: (_) {}, cancelOnError: true);
     _routeTimer?.cancel();
     _routeTimer =
@@ -434,7 +535,7 @@ mixin AppStateConnection on AppStateBase {
       final list = await clash.connections();
       if (list == null || !identical(clash, _clash)) return;
       routeTraffic = routeTraffic.add(list, _seenConnections);
-      notifyListeners();
+      trafficTick.value++;
     } finally {
       _pollingRoutes = false;
     }

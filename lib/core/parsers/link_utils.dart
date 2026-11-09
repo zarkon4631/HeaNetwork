@@ -14,16 +14,31 @@ class UnsupportedException extends LinkParseException {
   final String what;
 }
 
-/// Decodes standard or URL-safe base64, with or without padding.
-/// Returns null when [input] is not base64.
-String? tryBase64(String input) {
+/// Standard or URL-safe base64, with or without padding, as bytes.
+/// Returns null when [input] is not base64: padding is only tolerated at
+/// the end, and nowhere in the middle.
+List<int>? tryBase64Bytes(String input) {
   var s = input.trim().replaceAll(RegExp(r'\s'), '');
-  if (s.isEmpty || !RegExp(r'^[A-Za-z0-9+/_=-]+$').hasMatch(s)) return null;
+  if (!RegExp(r'^[A-Za-z0-9+/\-_]+={0,2}$').hasMatch(s)) return null;
   s = s.replaceAll('-', '+').replaceAll('_', '/').replaceAll('=', '');
   if (s.length % 4 == 1) return null;
   s = s.padRight(s.length + (4 - s.length % 4) % 4, '=');
   try {
-    return utf8.decode(base64.decode(s), allowMalformed: true);
+    return base64.decode(s);
+  } on FormatException {
+    return null;
+  }
+}
+
+/// [tryBase64Bytes] decoded as text. Returns null unless the bytes are
+/// valid UTF-8 as well: every real text use here (vmess JSON, credentials,
+/// subscription bodies) is, and anything else passing for base64 would
+/// only send the parser down a wrong path as mojibake.
+String? tryBase64(String input) {
+  final bytes = tryBase64Bytes(input);
+  if (bytes == null) return null;
+  try {
+    return utf8.decode(bytes);
   } on FormatException {
     return null;
   }
@@ -66,7 +81,7 @@ class RawLink {
 
   int get port {
     final m = RegExp(r'^\d+').firstMatch(portSpec);
-    return m == null ? 0 : int.parse(m.group(0)!);
+    return m == null ? 0 : int.tryParse(m.group(0)!) ?? 0;
   }
 
   String? q(String key) {
@@ -160,11 +175,22 @@ Map<String, String> parseQuery(String text) {
 
 /// Ports a QUIC client hops between, the way panels write them
 /// (`20000-30000,40000`), as the core's ranges: `20000:30000`, `40000:40000`.
-List<String> hopPortRanges(Iterable<String> specs) => [
-      for (final spec in specs)
-        for (final part in splitList(spec))
-          part.contains(RegExp('[-:]')) ? part.replaceAll('-', ':') : '$part:$part',
-    ];
+/// A part that is not a real port range is dropped: a config carrying one
+/// would be refused by the core at start.
+List<String> hopPortRanges(Iterable<String> specs) {
+  final out = <String>[];
+  for (final spec in specs) {
+    for (final part in splitList(spec)) {
+      final m = RegExp(r'^(\d{1,5})(?:[-:](\d{1,5}))?$').firstMatch(part);
+      if (m == null) continue;
+      final from = int.parse(m.group(1)!);
+      final to = m.group(2) == null ? from : int.parse(m.group(2)!);
+      if (from == 0 || to > 65535 || from > to) continue;
+      out.add('$from:$to');
+    }
+  }
+  return out;
+}
 
 List<String> splitList(String? v) => v == null
     ? const []

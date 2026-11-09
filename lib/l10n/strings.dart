@@ -168,6 +168,11 @@ class S {
       _t('Не удалось загрузить подписку', 'Could not load the subscription');
   String get host => _t('Адрес', 'Host');
   String get port => _t('Порт', 'Port');
+  String get badAddress =>
+      _t('Проверьте адрес и порт', 'Check the address and the port');
+  String get insecureSubscriptionQ => _t(
+      'Адрес без шифрования: токен подписки уйдёт открытым текстом. Продолжить?',
+      'The address is not encrypted: the subscription token would travel in the clear. Continue?');
   String get username => _t('Логин (необязательно)', 'Username (optional)');
   String get password => _t('Пароль (необязательно)', 'Password (optional)');
   String get qrPointCamera => _t('Наведите камеру на QR-код', 'Point the camera at a QR code');

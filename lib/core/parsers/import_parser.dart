@@ -9,6 +9,10 @@ import 'xray_json.dart';
 
 export 'link_utils.dart' show LinkParseException, UnsupportedException;
 
+/// A subscription address inside a multi-line import: not a server to
+/// parse, and the body of a subscription is not fetched from inside it.
+final _subscriptionLine = RegExp(r'^https?://', caseSensitive: false);
+
 class ImportResult {
   ImportResult({List<ProxyProfile>? profiles, List<String>? errors, this.subscriptionUrl})
       : profiles = profiles ?? [],
@@ -24,8 +28,6 @@ class ImportResult {
 
   /// Set when the text was a single http(s) URL, i.e. a subscription.
   final String? subscriptionUrl;
-
-  bool get isEmpty => profiles.isEmpty && subscriptionUrl == null;
 }
 
 /// Parses one share link. Throws [LinkParseException] when the scheme is
@@ -130,8 +132,14 @@ ImportResult _fromJson(Object? json, {bool xray = false}) {
     if (list is! List) return;
     for (final item in list) {
       if (item is! Map) continue;
-      final p = _fromSingBoxOutbound(Map<String, dynamic>.from(item));
-      if (p != null) result.profiles.add(p);
+      // One unreadable entry — a hand-edited outbound, say — must not cost
+      // the whole import, exactly as one bad line below does not.
+      try {
+        final p = _fromSingBoxOutbound(Map<String, dynamic>.from(item));
+        if (p != null) result.profiles.add(p);
+      } on Object catch (e) {
+        result.errors.add('$e');
+      }
     }
   }
 
@@ -233,7 +241,7 @@ ImportResult parseImportText(String input, {bool allowBase64 = true, bool xray =
   for (final rawLine in const LineSplitter().convert(text)) {
     final line = rawLine.trim();
     if (line.isEmpty || !line.contains('://')) continue;
-    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(line)) continue;
+    if (_subscriptionLine.hasMatch(line)) continue;
     try {
       result.profiles.add(parseLink(line));
     } on UnsupportedException catch (e) {

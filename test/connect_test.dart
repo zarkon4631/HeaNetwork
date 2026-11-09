@@ -1,5 +1,6 @@
 // Connecting: calling it off, a start that never finishes, starting as
 // administrator, and which DNS the connection uses.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -201,6 +202,66 @@ void main() {
       expect(state.stackSwitched, isFalse);
       expect(state.pendingRestart, isFalse);
       await state.disconnect();
+    });
+
+    test('a disconnect while the check is still deciding is the last word', () async {
+      // The check hangs, the user turns the VPN off, and only then does the
+      // check answer "the tunnel takes nothing" — which would restart the
+      // core on gVisor. It must not: the VPN stays down.
+      final core = CountingCore();
+      var decision = Completer<bool>();
+      final state = makeState(
+          core: core,
+          elevated: true,
+          tunnelCheck: () => decision.future);
+      state.settings.mode = ConnectionMode.tun;
+
+      final connecting = state.connect();
+      await tick();
+      expect(state.isConnected, isTrue);
+      expect(core.starts, 1);
+
+      await state.disconnect();
+      expect(state.status, CoreStatus.stopped);
+
+      decision.complete(false);
+      await connecting;
+      expect(core.starts, 1, reason: 'the core is not brought back up after a disconnect');
+      expect(state.status, CoreStatus.stopped);
+      expect(state.activeMode, isNull);
+      expect(state.error, isNull);
+    });
+
+    test('a disconnect during the gVisor retry keeps the setting untouched', () async {
+      // The first check says the tunnel is deaf; while the retry on gVisor
+      // runs, the user disconnects. The setting must not become gvisor.
+      final core = CountingCore();
+      final checks = <Completer<bool>>[
+        Completer<bool>(),
+      ];
+      var ask = 0;
+      final state = makeState(
+          core: core,
+          elevated: true,
+          tunnelCheck: () {
+            final gate = ask < checks.length ? checks[ask] : Completer<bool>();
+            ask++;
+            return gate.future.then((_) => false);
+          });
+      state.settings.mode = ConnectionMode.tun;
+
+      final connecting = state.connect();
+      await tick();
+      expect(core.starts, 1);
+      checks[0].complete(true); // the tunnel takes nothing: gVisor retry
+
+      await state.disconnect();
+      expect(state.status, CoreStatus.stopped);
+
+      await connecting;
+      expect(core.starts, 1, reason: 'the retry never starts the core again');
+      expect(state.settings.tunStack, 'mixed');
+      expect(state.stackSwitched, isFalse);
     });
 
     test('nothing is checked without a tunnel of that kind', () async {

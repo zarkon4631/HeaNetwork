@@ -42,9 +42,13 @@ Map<String, dynamic>? tlsFromParams(
   if (fp != null) tls['utls'] = {'enabled': true, 'fingerprint': fp};
 
   if (reality) {
+    final pbk = get('pbk');
+    // An empty public key would import cleanly and fail at start, with the
+    // core's complaint instead of one naming the missing key.
+    if (pbk == null) throw LinkParseException('Reality link without a public key');
     tls['reality'] = {
       'enabled': true,
-      'public_key': get('pbk') ?? '',
+      'public_key': pbk,
       'short_id': get('sid') ?? '',
       // Post-quantum key exchange, when the server advertises it.
       if (flag('support-x25519mlkem768')) 'support_x25519mlkem768': true,
@@ -54,16 +58,19 @@ Map<String, dynamic>? tlsFromParams(
   final ech = get('ech');
   if (ech != null) {
     // Xray carries the ECHConfigList as bare base64; sing-box wants PEM.
-    final looksLikeList = tryBase64(ech) != null && ech.length > 40;
-    tls['ech'] = {
-      'enabled': true,
-      if (looksLikeList)
+    // Without the list the core cannot use the block, so a value that is
+    // not one is ignored rather than shipped as a dead setting. The list
+    // is binary, so only its base64 shape is checked, not its text.
+    if (tryBase64Bytes(ech) != null && ech.length > 40) {
+      tls['ech'] = {
+        'enabled': true,
         'config': [
           '-----BEGIN ECH CONFIGS-----',
           ech,
           '-----END ECH CONFIGS-----',
         ],
-    };
+      };
+    }
   }
 
   // Keep an explicitly empty host (IP-only servers) out of the config.
@@ -343,7 +350,7 @@ ProxyProfile parseVless(String link) {
   final encryption = l.q('encryption');
   if (encryption != null && encryption != 'none') out['encryption'] = encryption;
   final pe = l.q('packetEncoding');
-  if (pe != null) out['packet_encoding'] = pe == 'none' ? '' : pe;
+  if (pe != null && pe != 'none') out['packet_encoding'] = pe;
   applyStream(out, l.query, l.host);
   return ProxyProfile(
     name: nameOr(l.name, l.host, l.port),

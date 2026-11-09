@@ -112,6 +112,11 @@ mixin AppStateProfiles on AppStateBase {
 
   Future<void> refreshSubscription(Subscription sub) async {
     final result = await _fetch(sub.url);
+    if (!subscriptions.contains(sub)) {
+      // Deleted while the request was out. Applying the answer would bring
+      // the deleted subscription's servers back from the dead.
+      return;
+    }
     _applySubscription(sub, result);
     unawaited(store.saveSubscriptions());
     profilesChanged();
@@ -120,10 +125,11 @@ mixin AppStateProfiles on AppStateBase {
   bool refreshingSubscriptions = false;
 
   /// Reloads every subscription. Returns one message per failure, prefixed
-  /// with the subscription's name.
-  Future<List<SubscriptionException>> refreshAllSubscriptions(
+  /// with the subscription's name, or null when nothing was refreshed
+  /// because a round is already under way.
+  Future<List<SubscriptionException>?> refreshAllSubscriptions(
       {bool onlyDue = false}) async {
-    if (refreshingSubscriptions) return const [];
+    if (refreshingSubscriptions) return null;
     final now = DateTime.now();
     final targets =
         subscriptions.where((s) => !onlyDue || s.isDue(now)).toList();

@@ -186,7 +186,8 @@ abstract class AppStateBase extends ChangeNotifier {
   }
 
   /// The core configuration for connecting through [profile]; the
-  /// connection facet implements it.
+  /// connection facet implements it. [tunStackOverride] builds the config
+  /// with another network stack than the setting says, without changing it.
   Map<String, dynamic> configFor(
     ProxyProfile profile, {
     required int clashPort,
@@ -194,6 +195,7 @@ abstract class AppStateBase extends ChangeNotifier {
     int? mixedPort,
     int? xrayPort,
     bool plainRouting = false,
+    String? tunStackOverride,
   });
 
   /// Called after something that may matter to the running core. A

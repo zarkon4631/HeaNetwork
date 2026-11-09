@@ -223,6 +223,12 @@ ProxyProfile parseAmneziaKey(String link) {
 
   Map<String, dynamic> root;
   try {
+    // A `qCompress` blob starts with its uncompressed size, big-endian.
+    // The key is untrusted clipboard data: without looking at that number
+    // first, a few kilobytes of it could ask to be inflated into gigabytes.
+    if (bytes.length < 5) throw const FormatException('no qCompress header');
+    final claimed = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+    if (claimed <= 0 || claimed > 32 << 20) throw const FormatException('implausible size');
     final json = utf8.decode(zlib.decode(bytes.sublist(4)));
     root = Map<String, dynamic>.from(jsonDecode(json) as Map);
   } on Object {

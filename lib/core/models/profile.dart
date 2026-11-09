@@ -96,7 +96,7 @@ class ProxyProfile {
   String get server {
     if (isEndpoint) {
       final peers = outbound['peers'];
-      if (peers is List && peers.isNotEmpty) {
+      if (peers is List && peers.isNotEmpty && peers.first is Map) {
         return '${(peers.first as Map)['address'] ?? ''}';
       }
       return '';
@@ -107,8 +107,9 @@ class ProxyProfile {
   int get port {
     if (isEndpoint) {
       final peers = outbound['peers'];
-      if (peers is List && peers.isNotEmpty) {
-        return ((peers.first as Map)['port'] as num?)?.toInt() ?? 0;
+      if (peers is List && peers.isNotEmpty && peers.first is Map) {
+        final p = (peers.first as Map)['port'];
+        return p is num ? p.toInt() : int.tryParse('$p') ?? 0;
       }
       return 0;
     }

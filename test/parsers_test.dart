@@ -277,6 +277,66 @@ void main() {
       expect(r.profiles, isEmpty);
       expect(r.errors, isNotEmpty);
     });
+
+    test('a malformed wireguard entry costs itself, not the import', () {
+      final r = parseImportText(jsonEncode({
+        'outbounds': [
+          // A wireguard "peer" that is not one, and a port that is a string.
+          {'type': 'wireguard', 'server': 'a.com', 'peers': ['junk']},
+          {'type': 'wireguard', 'server': 'b.com', 'peers': [
+            {'address': 'b.com', 'port': '443'},
+          ]},
+          {'type': 'vless', 'tag': 'ok', 'server': 'c.com',
+            'server_port': 443, 'uuid': uuid},
+        ],
+      }));
+      expect(r.profiles.map((p) => p.name), ['b.com:443', 'ok']);
+      expect(r.profiles.first.port, 443);
+    });
+
+    test('reality without a public key is refused at import, not at start', () {
+      final r = parseImportText(
+          '${sampleLinks['vless-reality-vision']!.split('?').first}?security=reality#r');
+      expect(r.profiles, isEmpty);
+      expect(r.errors.single, contains('public key'));
+    });
+
+    test('port hopping keeps only parts the core can read', () {
+      final base = sampleLinks['hy2-short']!;
+      final good = parseLink(base.replaceFirst('#', '&mport=40000-40100,443,junk#'));
+      expect(good.outbound['server_ports'], ['40000:40100', '443:443']);
+      final allBad = parseLink(base.replaceFirst('#', '&mport=abc-def#'));
+      expect(allBad.outbound.containsKey('server_ports'), isFalse);
+    });
+
+    test('an obfuscation the core does not know is refused at import', () {
+      final r = parseImportText(
+          '${sampleLinks['hysteria2']!.split('#').first}&obfs=xor#x');
+      expect(r.profiles, isEmpty);
+      expect(r.skipped.single.reason, 'obfs:xor');
+    });
+
+    test('a legacy shadowsocks link keeps its plugin query', () {
+      // The legacy form: the whole `method:pass@host:port` is base64, with
+      // a plugin in the query and a name in the fragment.
+      final body = base64
+          .encode(utf8.encode('2022-blake3-aes-128-gcm:pass@1.2.3.4:8388'));
+      final l = parseLink('ss://$body?plugin=obfs-local%3Bobfs%3Dhttp#p');
+      expect(l.outbound['server'], '1.2.3.4');
+      expect(l.outbound['method'], '2022-blake3-aes-128-gcm');
+      expect(l.outbound['plugin'], 'obfs-local');
+      expect(l.outbound['plugin_opts'], 'obfs=http');
+      expect(l.name, 'p');
+    });
+
+    test('an amnezia key claiming an absurd size is refused, not inflated', () {
+      // qCompress layout: 4-byte big-endian uncompressed length, then zlib.
+      final header = [0x7F, 0xFF, 0xFF, 0xFF]; // two gigabytes
+      final bomb = base64.encode(header + zlib.encode(utf8.encode('{"x":1}')));
+      final r = parseImportText('vpn://$bomb');
+      expect(r.profiles, isEmpty);
+      expect(r.errors.single, contains('Amnezia'));
+    });
   });
 
   group('domain rule guess', () {
