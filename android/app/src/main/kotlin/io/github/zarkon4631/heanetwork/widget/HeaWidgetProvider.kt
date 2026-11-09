@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.widget.RemoteViews
 import io.github.zarkon4631.heanetwork.R
 import io.github.zarkon4631.heanetwork.vpn.HeaVpnService
@@ -36,19 +35,17 @@ class HeaWidgetProvider : AppWidgetProvider() {
         }
 
         private fun broadcast(context: Context, action: String, code: Int): PendingIntent {
-            val immutable = if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
             return PendingIntent.getBroadcast(
                 context, code,
                 Intent(context, HeaWidgetProvider::class.java).setAction(action),
-                PendingIntent.FLAG_UPDATE_CURRENT or immutable,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         }
 
         private fun openApp(context: Context): PendingIntent {
-            val immutable = if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
             return PendingIntent.getActivity(
                 context, 10, QuickConnect.appIntent(context),
-                PendingIntent.FLAG_UPDATE_CURRENT or immutable,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         }
 

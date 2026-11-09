@@ -179,7 +179,21 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                             startCore(config)
                         }
                     }
-                    // Already starting or stopping: the request is dropped.
+                    else -> {
+                        // Starting or stopping. The request waits behind the
+                        // work under way instead of being dropped: the task
+                        // below takes the config when it runs, so the last
+                        // start wins — picking a server from the widget while
+                        // one connects must not be lost.
+                        pendingConfig = config
+                        publish(STARTING)
+                        worker.execute {
+                            val late = pendingConfig ?: return@execute
+                            pendingConfig = null
+                            teardown()
+                            startCore(late)
+                        }
+                    }
                 }
             }
         }
@@ -212,8 +226,12 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         } catch (e: Throwable) {
             Log.e(TAG, "core failed to start", e)
             teardown()
-            publish(STOPPED, e.message ?: e.toString())
-            main.post { stopForegroundAndSelf() }
+            // Another start queued behind this one takes over; its failure
+            // is not announced then, so the next start is not lost under it.
+            if (pendingConfig == null) {
+                publish(STOPPED, e.message ?: e.toString())
+                main.post { stopForegroundAndSelf() }
+            }
         }
     }
 
@@ -222,8 +240,12 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         publish(STOPPING)
         worker.execute {
             teardown()
-            publish(STOPPED, error)
-            main.post { stopForegroundAndSelf() }
+            // A start that arrived while stopping is queued behind this one
+            // and brings the core up; the service stays up for it.
+            if (pendingConfig == null) {
+                publish(STOPPED, error)
+                main.post { stopForegroundAndSelf() }
+            }
         }
     }
 
@@ -240,12 +262,7 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun stopForegroundAndSelf() {
-        if (Build.VERSION.SDK_INT >= 24) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
@@ -258,7 +275,8 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 ),
             )
         }
-        val immutable = if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
+        // FLAG_IMMUTABLE needs API 23; the app's minSdk is above it.
+        val immutable = PendingIntent.FLAG_IMMUTABLE
         val open = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -405,6 +423,9 @@ class HeaVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         val pfd = builder.establish()
             ?: error("android: the VPN permission was revoked or another VPN is always-on")
+        // A previous descriptor, should the core ever open the tun again
+        // without a teardown between, is closed instead of leaked.
+        tun?.let { runCatching { it.close() } }
         tun = pfd
         return pfd.fd
     }

@@ -392,7 +392,20 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        // The consent dialog can no longer come back with an answer; the
+        // Dart side must not be left waiting on it forever.
+        pendingPrepare?.error("cancelled", "the activity is gone", null)
+        pendingPrepare = null
         background.shutdown()
         super.onDestroy()
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        // Swiping the app away while the VPN keeps running does not call
+        // the event channel's onCancel: without this, the static sink in
+        // the service would hold the dead engine (and this activity)
+        // for as long as the VPN runs.
+        HeaVpnService.onStatus = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 }

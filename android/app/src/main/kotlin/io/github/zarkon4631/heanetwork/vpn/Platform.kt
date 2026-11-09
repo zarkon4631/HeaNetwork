@@ -140,26 +140,24 @@ object DefaultNetworkMonitor {
         }
     }
 
-    private fun notifyListener(network: Network?) {
+    private fun notifyListener(network: Network?, attempt: Int = 0) {
         val listener = listener ?: return
         val cm = connectivity
         if (network == null || cm == null) {
             listener.updateDefaultInterface("", -1, false, false)
             return
         }
-        // Link properties can lag behind the callback by a moment.
-        repeat(10) {
-            val name = cm.getLinkProperties(network)?.interfaceName
-            val index = try {
-                name?.let { NetworkInterface.getByName(it)?.index }
-            } catch (e: Exception) {
-                null
-            }
-            if (name != null && index != null) {
-                listener.updateDefaultInterface(name, index, false, false)
-                return
-            }
-            Thread.sleep(100)
+        // Link properties can lag behind the callback by a moment. Looking
+        // again shortly keeps this thread free for the callbacks behind it,
+        // instead of holding it for a second of sleeping.
+        val name = cm.getLinkProperties(network)?.interfaceName
+        val index = name?.let {
+            runCatching { NetworkInterface.getByName(it)?.index }.getOrNull()
+        }
+        if (name != null && index != null) {
+            listener.updateDefaultInterface(name, index, false, false)
+        } else if (attempt < 10) {
+            handler.postDelayed({ notifyListener(network, attempt + 1) }, 100)
         }
     }
 }

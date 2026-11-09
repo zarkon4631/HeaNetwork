@@ -61,7 +61,34 @@ class AndroidWidgetBridge with WidgetsBindingObserver {
         for (final sub in state.subscriptions) ...state.profilesOf(sub.id),
       ].take(maxProfiles).toList();
 
+  Future<void>? _exporting;
+  bool _exportWanted = false;
+
+  /// One export at a time: two of them interleaving would write config
+  /// files with one port and secret and a state file with another's, and
+  /// the app could no longer attach to a core the widget started. A change
+  /// that lands mid-export gets a round of its own after it.
   Future<void> export() async {
+    final running = _exporting;
+    if (running != null) {
+      _exportWanted = true;
+      await running;
+      return;
+    }
+    final done = _doExport();
+    _exporting = done;
+    try {
+      await done;
+    } finally {
+      _exporting = null;
+      if (_exportWanted) {
+        _exportWanted = false;
+        unawaited(export());
+      }
+    }
+  }
+
+  Future<void> _doExport() async {
     final revision = state.configRevision;
     final locale = state.settings.locale;
     try {

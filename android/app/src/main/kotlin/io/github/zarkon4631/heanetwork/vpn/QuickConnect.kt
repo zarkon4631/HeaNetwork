@@ -57,6 +57,20 @@ object QuickConnect {
     private fun configFile(context: Context, id: String) =
         File(context.filesDir, "widget/configs/$id.json")
 
+    /**
+     * Writes through a temp file, as the app's own side of this contract
+     * does: the app may be reading while this writes, and a torn file is
+     * a lost selection or a dead port.
+     */
+    private fun writeAtomically(file: File, text: String) {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(file)) {
+            file.writeText(text)
+        }
+    }
+
     fun readState(context: Context): State {
         val json = try {
             JSONObject(stateFile(context).readText())
@@ -89,11 +103,13 @@ object QuickConnect {
                 .put("profileId", state.ids[index])
                 .put("clashPort", state.json.optInt("clashPort"))
                 .put("clashSecret", state.json.optString("clashSecret"))
-            File(context.filesDir, "run").mkdirs()
-            File(context.filesDir, "run/active.json").writeText(active.toString())
+            writeAtomically(File(context.filesDir, "run/active.json"), active.toString())
             HeaVpnService.start(context, config.readText())
         } catch (e: Exception) {
             Log.e(TAG, "could not start the VPN", e)
+            // True would tell the caller the VPN is being handled; it is not,
+            // so let it fall back to opening the app.
+            return false
         }
         return true
     }
@@ -122,7 +138,7 @@ object QuickConnect {
         val next = ((state.index + delta) % count + count) % count
         try {
             state.json.put("selected", state.ids[next])
-            stateFile(context).writeText(state.json.toString())
+            writeAtomically(stateFile(context), state.json.toString())
         } catch (e: Exception) {
             Log.e(TAG, "could not save the selection", e)
             return true
