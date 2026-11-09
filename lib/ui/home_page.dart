@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -8,8 +7,6 @@ import 'package:provider/provider.dart';
 import '../core/models/settings.dart';
 import '../core/services/core_controller.dart';
 import '../l10n/strings.dart';
-import '../platform/windows/elevation.dart';
-import '../platform/windows/win32.dart' as win32;
 import '../state/app_state.dart';
 import 'config_list.dart';
 import 'flags.dart';
@@ -71,17 +68,10 @@ Future<void> _withElevationPrompt(
           await state.reconnect();
         }
       case _WithoutRights.restartAsAdmin:
-        // The elevated copy takes over and connects; `--elevated` lets it
-        // past the single-instance guard while this one is still closing.
-        // A connection in use is taken down first, so that the two do not
-        // share a core, and the settings are flushed so that it starts
-        // with what is on screen.
-        await state.disconnect();
-        await state.store.flush();
-        if (win32.shellExecute(Platform.resolvedExecutable,
-            verb: 'runas', args: elevatedArguments(const [], connect: true))) {
-          exit(0);
-        }
+        // The elevated copy takes over and connects; the whole sequence —
+        // taking the connection down, flushing, relaunching — is the
+        // state's, so every path that needs it works the same.
+        await state.restartElevated();
       case null:
         break;
     }
@@ -167,6 +157,19 @@ class HomePage extends StatelessWidget {
   }
 }
 
+/// Rebuilds [builder] on every traffic sample. The live numbers change
+/// every second; they ride on [AppState.trafficTick] instead of the state
+/// itself, so nothing but these views rebuilds at that rate.
+class TrafficView extends StatelessWidget {
+  const TrafficView({super.key, required this.state, required this.builder});
+  final AppState state;
+  final WidgetBuilder builder;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: state.trafficTick, builder: (context, _, _) => builder(context));
+}
+
 /// The power button with the live speed next to it, status and totals.
 class ConnectPanel extends StatelessWidget {
   const ConnectPanel({super.key, required this.state, this.dense = false});
@@ -242,17 +245,26 @@ class ConnectPanel extends StatelessWidget {
                   else
                     const SizedBox(height: 2),
                   const SizedBox(height: 8),
-                  _Speed(
-                      icon: Icons.south_rounded,
-                      value: formatSpeed(state.speed.down),
-                      color: colors.connected,
-                      active: state.isConnected),
-                  const SizedBox(height: 2),
-                  _Speed(
-                      icon: Icons.north_rounded,
-                      value: formatSpeed(state.speed.up),
-                      color: theme.colorScheme.primary,
-                      active: state.isConnected),
+                  TrafficView(
+                    state: state,
+                    builder: (context) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _Speed(
+                            icon: Icons.south_rounded,
+                            value: formatSpeed(state.speed.down),
+                            color: colors.connected,
+                            active: state.isConnected),
+                        const SizedBox(height: 2),
+                        _Speed(
+                            icon: Icons.north_rounded,
+                            value: formatSpeed(state.speed.up),
+                            color: theme.colorScheme.primary,
+                            active: state.isConnected),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -290,16 +302,19 @@ class ConnectPanel extends StatelessWidget {
                   color: muted,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
-                child: Row(
-                  children: [
-                    Flexible(child: Text('${s.sessionTraffic}:')),
-                    const SizedBox(width: 6),
-                    Icon(Icons.south_rounded, size: 12, color: muted),
-                    Text(' ${formatBytes(state.totalDown)}'),
-                    const SizedBox(width: 8),
-                    Icon(Icons.north_rounded, size: 12, color: muted),
-                    Text(' ${formatBytes(state.totalUp)}'),
-                  ],
+                child: TrafficView(
+                  state: state,
+                  builder: (context) => Row(
+                    children: [
+                      Flexible(child: Text('${s.sessionTraffic}:')),
+                      const SizedBox(width: 6),
+                      Icon(Icons.south_rounded, size: 12, color: muted),
+                      Text(' ${formatBytes(state.totalDown)}'),
+                      const SizedBox(width: 8),
+                      Icon(Icons.north_rounded, size: 12, color: muted),
+                      Text(' ${formatBytes(state.totalUp)}'),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -382,7 +397,9 @@ class SessionCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _TrafficSplit(traffic: state.routeTraffic),
+            TrafficView(
+                state: state,
+                builder: (context) => _TrafficSplit(traffic: state.routeTraffic)),
             if (state.isWindows)
               row(
                   Icons.shield_outlined,
@@ -903,7 +920,10 @@ class ModeSlider extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final tun = state.settings.mode == ConnectionMode.tun;
+    // Selected, not read: the switch flips its own thumb and label, without
+    // waiting for whatever ancestor happens to rebuild.
+    final tun = context.select<AppState, bool>(
+        (st) => st.settings.mode == ConnectionMode.tun);
 
     void set(ConnectionMode mode) => state.updateSettings((st) => st.mode = mode);
 

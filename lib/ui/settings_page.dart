@@ -515,6 +515,18 @@ class _NumberFieldState extends State<_NumberField> {
   }
 
   @override
+  void didUpdateWidget(_NumberField old) {
+    super.didUpdateWidget(old);
+    // The value can change without this field (a settings reset, say); a
+    // field that is not being edited in follows.
+    if (widget.value != old.value &&
+        !_focus.hasFocus &&
+        int.tryParse(_controller.text) != widget.value) {
+      _controller.text = '${widget.value}';
+    }
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     _focus.dispose();
@@ -668,11 +680,13 @@ class _LogsPageState extends State<LogsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Watched, not read: changing the level must redraw the list at once.
-    final state = context.watch<AppState>();
+    // The level is selected for: changing it must redraw the list at once,
+    // while anything else happening in the state must not refilter two
+    // thousand lines for nothing.
+    final state = context.read<AppState>();
+    final level = context.select<AppState, String>((s) => s.settings.logLevel);
     final s = S.of(context);
     final theme = Theme.of(context);
-    final level = state.settings.logLevel;
     return Scaffold(
       appBar: AppBar(
         title: Text(s.logs),

@@ -182,7 +182,14 @@ bool _isRegionalIndicator(int rune) => rune >= 0x1F1E6 && rune <= 0x1F1FF;
 class ServerLabel {
   const ServerLabel._(this.title, this.country);
 
-  factory ServerLabel.of(String name) {
+  /// Names repeat heavily across the servers of a subscription, and every
+  /// row of the list asks on every rebuild; the reading is cached.
+  static final _cache = <String, ServerLabel>{};
+
+  factory ServerLabel.of(String name) =>
+      _cache.putIfAbsent(name, () => ServerLabel._read(name));
+
+  factory ServerLabel._read(String name) {
     // An emoji flag says it outright.
     final runes = name.runes.toList();
     for (var i = 0; i + 1 < runes.length; i++) {

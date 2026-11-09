@@ -56,22 +56,30 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
+    // The state notifies once a second while connected (traffic); the shell
+    // takes what it needs by select, so that does not rebuild every page
+    // below it.
+    final connected = context.select<AppState, bool>((s) => s.isConnected);
+    final animations = context.select<AppState, bool>((s) => s.settings.animations);
     return AnimatedBackdrop(
-      connected: state.isConnected,
-      animate: state.settings.animations,
+      connected: connected,
+      animate: animations,
       child: ShellTab(
         tab: _tab,
         child: ValueListenableBuilder<int>(
           valueListenable: _tab,
-          builder: (context, index, _) => _build(context, state, index),
+          builder: (context, index, _) => _build(context, index),
         ),
       ),
     );
   }
 
-  Widget _build(BuildContext context, AppState state, int index) {
+  Widget _build(BuildContext context, int index) {
     final s = S.of(context);
+    final (compact, windows, tv) =
+        context.select<AppState, (bool, bool, bool)>(
+            (st) => (st.compactView, st.isWindows, st.isTv));
+    final state = context.read<AppState>();
     final destinations = [
       (Icons.home_outlined, Icons.home_rounded, s.navHome),
       (Icons.alt_route_outlined, Icons.alt_route_rounded, s.navRouting),
@@ -89,17 +97,17 @@ class _ShellState extends State<Shell> {
     );
 
     return LayoutBuilder(builder: (context, constraints) {
-      if (state.compactView && state.isWindows) {
+      if (compact && windows) {
         return const Scaffold(backgroundColor: Colors.transparent, body: CompactView());
       }
 
       // A TV always gets the side rail: it is what a remote navigates best,
       // and its panel loses the edges to overscan, hence the padding.
-      if (constraints.maxWidth >= 700 || state.isTv) {
+      if (constraints.maxWidth >= 700 || tv) {
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: SafeArea(
-            minimum: state.isTv
+            minimum: tv
                 ? const EdgeInsets.symmetric(horizontal: 28, vertical: 18)
                 : EdgeInsets.zero,
             child: Row(

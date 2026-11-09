@@ -104,6 +104,11 @@ class Updater {
       headers: {'Accept': 'application/vnd.github+json'},
     ).timeout(const Duration(seconds: 15));
     if (res.statusCode == 404) return null; // no releases yet
+    if (res.statusCode == 403 || res.statusCode == 429) {
+      // The unauthenticated API allows so many calls per hour; being out of
+      // them says nothing about updates, so it is not an error either.
+      return null;
+    }
     if (res.statusCode != 200) {
       throw UpdateException('GitHub answered ${res.statusCode}');
     }

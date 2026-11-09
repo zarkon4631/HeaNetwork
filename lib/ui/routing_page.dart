@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,13 +27,17 @@ class RoutingPage extends StatelessWidget {
           MaterialPageRoute(
               fullscreenDialog: true, builder: (_) => const _AppPickerPage()));
       if (picked == null) return;
+      // The default may have been flipped while the picker was open; the
+      // new rule is an exception to what is set now, not to what was.
+      final exceptionToProxy =
+          routing.defaultAction == RouteAction.proxy;
       final rule = AppRule(
         name: picked.name,
         processName: picked.processName,
         processPath: picked.processPath,
         packageName: picked.packageName,
         // A new rule is an exception, so it starts as the opposite of the default.
-        action: proxyDefault ? RouteAction.direct : RouteAction.proxy,
+        action: exceptionToProxy ? RouteAction.direct : RouteAction.proxy,
       );
       final exe = rule.processName?.toLowerCase();
       final known = routing.apps.any((a) =>
@@ -77,8 +79,11 @@ class RoutingPage extends StatelessWidget {
       final text = await promptText(context,
           title: s.addSite, hint: s.siteExample, label: s.sites);
       if (text == null) return;
-      final rule =
-          DomainRule.guess(text, proxyDefault ? RouteAction.direct : RouteAction.proxy);
+      // As with a program: an exception to the default as it is now.
+      final rule = DomainRule.guess(text,
+          routing.defaultAction == RouteAction.proxy
+              ? RouteAction.direct
+              : RouteAction.proxy);
       // "https://" and the like: nothing a rule could be about.
       if (rule.value.isEmpty) return;
       state.updateRouting((r) => r.domains.add(rule));
@@ -553,11 +558,14 @@ class _AppPickerPageState extends State<_AppPickerPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final theme = Theme.of(context);
+    // Through the state, which the app's own tests can stand in for, and
+    // not the platform the test happens to run on.
+    final windows = context.select<AppState, bool>((st) => st.isWindows);
     return Scaffold(
       appBar: AppBar(
         title: Text(s.pickApp),
         actions: [
-          if (Platform.isWindows)
+          if (windows)
             Padding(
               padding: const EdgeInsets.only(right: 12),
               child: TextButton.icon(
@@ -576,7 +584,7 @@ class _AppPickerPageState extends State<_AppPickerPage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
                 child: TextField(
-                  autofocus: Platform.isWindows,
+                  autofocus: windows,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search_rounded),
                     hintText: s.search,
@@ -592,7 +600,7 @@ class _AppPickerPageState extends State<_AppPickerPage> {
                       child: Padding(
                         padding: const EdgeInsets.only(left: 8),
                         child: Text(
-                            Platform.isWindows ? s.pickAppRunning : s.pickAppInstalled,
+                            windows ? s.pickAppRunning : s.pickAppInstalled,
                             style: theme.textTheme.labelLarge
                                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                       ),
