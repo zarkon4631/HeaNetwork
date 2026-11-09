@@ -3,6 +3,18 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.17
+
+- Отключение во время установки соединения — последнее слово. Раньше, если нажать «Отключить», пока приложение проверяло туннель (до нескольких секунд после старта), ядро могло подняться снова уже после отключения: приложение показывало «Подключено», хотя пользователь выключал VPN. Теперь любое отключение останавливает установку соединения на любом шаге.
+- На Android выбор сервера из виджета или плитки в момент, когда VPN включается или выключается, больше не теряется: раньше такой запрос просто отбрасывался, и виджет приходилось нажимать ещё раз.
+- Одна повреждённая запись в подписке или в JSON-конфиге больше не срывает весь импорт: нечитаемый сервер пропускается, остальные добавляются. Ссылка VLESS с Reality без публичного ключа и Amnezia-ключ с неправдоподобным размером отклоняются сразу с внятной ошибкой, а не падением ядра при подключении.
+- Подписка, удалённая во время фонового обновления, не возвращается вместе со своими серверами. Адрес подписки без шифрования (http://) теперь сопровождается предупреждением: токен подписки уходит открытым текстом.
+- Приложение с включённым VPN больше не перестраивает все свои страницы дважды в секунду ради показа скорости: обновляются только цифры, которые видны. Меньше нагрузки на процессор и батарею — заметнее всего на телевизоре и на длинных списках серверов.
+- На Android исправлена утечка памяти, если смахнуть приложение, пока VPN работает, а состояние виджета теперь записывается атомарно. Плитка и виджет, если сами подключиться не смогли, открывают приложение вместо тихого «ничего не произошло».
+- Под капотом: ошибки прямо в диалоге ручного добавления сервера, обновлялка не считает лимит запросов GitHub за ошибку, мелкие правки стабильности.
+
+English: turning the VPN off while a connection is still being set up is now final — the core can no longer come back up after the user disconnected. On Android, picking a server from the widget or the tile during a start or stop is no longer silently dropped. One malformed entry in a subscription or JSON import no longer costs the whole import; a Reality link without a public key and an implausibly-sized Amnezia key are refused up front with a clear message. A subscription deleted during a background refresh stays deleted; plain-http subscription addresses now warn about the token travelling unencrypted. While connected, the app no longer rebuilds all its pages twice a second for the live speed numbers — less CPU and battery, most visible on TV and long server lists. On Android: fixed an engine memory leak when the app is swiped away with the VPN up, the widget state is written atomically, and the tile/widget open the app when they could not connect by themselves.
+
 ## 1.0.16
 
 - На странице журнала появилась кнопка «Скопировать диагностику»: она копирует одно сообщение с версией приложения, платформой, режимом работы и последними строками журнала, из которых убраны UUID, пароли и ключи подписки. Самый быстрый способ рассказать о проблеме.
