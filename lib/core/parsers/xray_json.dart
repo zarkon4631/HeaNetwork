@@ -56,8 +56,17 @@ Map<String, String> _streamParams(Map<String, dynamic> stream) {
       p['host'] = _str(ws['host']).isNotEmpty
           ? _str(ws['host'])
           : _str(_map(ws['headers'])?['Host']);
+      // Early data rides in the path as `?ed=`, which is how the link
+      // builder below reads it back out.
+      final ed = _int(ws['maxEarlyData']);
+      if (ed > 0) p['path'] = '${p['path']}?ed=$ed';
     case 'grpc':
       p['serviceName'] = _str(_map(stream['grpcSettings'])?['serviceName']);
+    case 'http' || 'h2':
+      final h2 = _map(stream['httpSettings']) ?? const {};
+      p['path'] = _str(h2['path']);
+      final hh = h2['host'];
+      p['host'] = hh is List ? hh.join(',') : _str(hh);
     case 'httpupgrade':
       final hu = _map(stream['httpupgradeSettings']) ?? const {};
       p['path'] = _str(hu['path']);
@@ -269,6 +278,18 @@ ProxyProfile? profileFromXrayConfig(Map<String, dynamic> config) {
   // asked of the config: XDRIVE, for one, needs no address at all.
   if (protocol != 'hysteria') transportFromParams(params);
   if (host.isEmpty || port == 0) return null;
+  // A credential the panel left empty would import cleanly and the core
+  // would refuse to start: name what is missing here instead.
+  if (switch (protocol) {
+    'vless' || 'vmess' => _str(user['id']).isEmpty,
+    'trojan' || 'shadowsocks' => _str(endpoint['password']).isEmpty,
+    _ => false,
+  }) {
+    throw LinkParseException(
+        protocol == 'trojan' || protocol == 'shadowsocks'
+            ? 'missing password'
+            : 'missing UUID');
+  }
 
   final out = <String, dynamic>{'server': host, 'server_port': port};
   String type;

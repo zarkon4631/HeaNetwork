@@ -109,6 +109,7 @@ ProxyProfile? _fromSingBoxOutbound(Map<String, dynamic> raw) {
           'public_key': out['peer_public_key'],
           'pre_shared_key': out['pre_shared_key'],
           'allowed_ips': ['0.0.0.0/0', '::/0'],
+          'reserved': out['reserved'],
         }),
       ],
     });

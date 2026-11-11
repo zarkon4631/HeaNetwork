@@ -237,9 +237,13 @@ Map<String, dynamic> xhttpExtra(Map<String, dynamic> e) {
 
   final dl = e['downloadSettings'];
   if (dl is Map) {
+    // Panels write the port as a number, but some hand it over as text.
+    final port = dl['port'] is num
+        ? (dl['port'] as num).toInt()
+        : int.tryParse('${dl['port'] ?? ''}');
     final d = <String, dynamic>{
       'server': dl['address'],
-      'server_port': (dl['port'] as num?)?.toInt(),
+      'server_port': port != null && port > 0 ? port : null,
     };
     final xs = dl['xhttpSettings'];
     if (xs is Map) {

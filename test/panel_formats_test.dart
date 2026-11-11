@@ -4,6 +4,7 @@
 // whole Xray configs. Each case is also fed to the real core when present.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/core/config/config_builder.dart';
@@ -293,6 +294,32 @@ void main() {
       expect(r.errors, isEmpty);
       expect(r.profiles.map((p) => p.name), ['Амстердам AWG', 'VLESS Reality', 'Запасной']);
     });
+
+    test('an incomplete container gives way to the next one', () {
+      // The AmneziaVPN app's sharing format: a qCompress blob (4-byte
+      // big-endian length, then zlib) around the app's JSON, whose
+      // containers each carry the protocol under their own name.
+      String key(List<String> configs) {
+        final raw = utf8.encode(jsonEncode({
+          'containers': [
+            for (final c in configs)
+              {'container': 'awg', 'awg': {'last_config': jsonEncode({'config': c})}},
+          ],
+        }));
+        final head = ByteData(4)..setUint32(0, raw.length, Endian.big);
+        final blob = [...head.buffer.asUint8List(), ...zlib.encode(raw)];
+        return 'vpn://${base64Url.encode(blob).replaceAll('=', '')}';
+      }
+
+      final p = parseLink(key([
+        // The app keeps a stub here until the first connection succeeds.
+        '[Interface]\nAddress = 10.0.0.2/32',
+        panelAwgConf,
+      ]));
+      expect(p.type, Protocol.amneziawg);
+      expect(p.name, 'Амстердам AWG');
+      expect(p.server, '203.0.113.10');
+    });
   });
 
   group('link parameters', () {
@@ -459,6 +486,150 @@ void main() {
       ]));
       expect(r.profiles, isEmpty);
       expect(r.errors, isNotEmpty);
+    });
+
+    test('h2 transport is read from httpSettings', () async {
+      final r = parseImportText(jsonEncode([
+        xrayConfig('H2 · CDN', {
+          'protocol': 'vless',
+          'settings': {
+            'vnext': [
+              {
+                'address': 'cdn.example.com',
+                'port': 443,
+                'users': [
+                  {'id': uuid, 'encryption': 'none'},
+                ],
+              },
+            ],
+          },
+          'streamSettings': {
+            'network': 'h2',
+            'security': 'tls',
+            'httpSettings': {
+              'host': ['cdn.example.com', 'alt.example.com'],
+              'path': '/h2',
+            },
+            'tlsSettings': {'serverName': 'cdn.example.com'},
+          },
+        }),
+      ]));
+      final p = r.profiles.single;
+      expect(p.outbound['transport'], {
+        'type': 'http',
+        'host': ['cdn.example.com', 'alt.example.com'],
+        'path': '/h2',
+      });
+      await coreAccepts(p, 'json h2');
+    });
+
+    test('ws early data arrives from the JSON config as ?ed=', () {
+      final r = parseImportText(jsonEncode([
+        xrayConfig('WS · Early', {
+          'protocol': 'vless',
+          'settings': {
+            'vnext': [
+              {
+                'address': 'ed.example.com',
+                'port': 443,
+                'users': [
+                  {'id': uuid, 'encryption': 'none'},
+                ],
+              },
+            ],
+          },
+          'streamSettings': {
+            'network': 'ws',
+            'security': 'none',
+            'wsSettings': {
+              'path': '/ws',
+              'host': 'cdn.example.com',
+              'maxEarlyData': 2048,
+              'earlyDataHeaderName': 'Sec-WebSocket-Protocol',
+            },
+          },
+        }),
+      ]));
+      expect(r.profiles.single.outbound['transport'], {
+        'type': 'ws',
+        'headers': {'Host': 'cdn.example.com'},
+        'path': '/ws',
+        'max_early_data': 2048,
+        'early_data_header_name': 'Sec-WebSocket-Protocol',
+      });
+    });
+
+    test('a config without its credential is reported, not imported', () {
+      final r = parseImportText(jsonEncode([
+        xrayConfig('No id', {
+          'protocol': 'vless',
+          'settings': {
+            'vnext': [
+              {
+                'address': 'v.example.com',
+                'port': 443,
+                'users': [
+                  {'encryption': 'none'},
+                ],
+              },
+            ],
+          },
+          'streamSettings': {'network': 'tcp', 'security': 'none'},
+        }),
+        xrayConfig('No pass', {
+          'protocol': 'trojan',
+          'settings': {
+            'servers': [
+              {'address': 't.example.com', 'port': 443, 'password': ''},
+            ],
+          },
+          'streamSettings': {'network': 'tcp', 'security': 'none'},
+        }),
+      ]));
+      expect(r.profiles, isEmpty);
+      expect(r.errors, ['No id: missing UUID', 'No pass: missing password']);
+    });
+
+    test('a text port in xhttp downloadSettings is read, not thrown on', () async {
+      final r = parseImportText(jsonEncode([
+        xrayConfig('XHTTP · Split', {
+          'protocol': 'vless',
+          'settings': {
+            'vnext': [
+              {
+                'address': 'sp.example.com',
+                'port': 443,
+                'users': [
+                  {'id': uuid, 'encryption': 'none'},
+                ],
+              },
+            ],
+          },
+          'streamSettings': {
+            'network': 'xhttp',
+            'security': 'tls',
+            'tlsSettings': {'serverName': 'sp.example.com'},
+            'xhttpSettings': {
+              'path': '/x',
+              'host': 'sp.example.com',
+              'mode': 'packet-up',
+              'extra': {
+                'downloadSettings': {
+                  'address': 'dl.example.com',
+                  'port': '8443',
+                  'security': 'tls',
+                  'xhttpSettings': {'path': '/dl', 'host': 'dl.example.com'},
+                },
+              },
+            },
+          },
+        }),
+      ]));
+      final p = r.profiles.single;
+      final download = (p.outbound['transport'] as Map)['download'] as Map;
+      expect(download['server'], 'dl.example.com');
+      expect(download['server_port'], 8443);
+      await coreAccepts(p, 'json xhttp split');
     });
   });
 

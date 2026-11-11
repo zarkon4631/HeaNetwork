@@ -259,7 +259,13 @@ ProxyProfile parseAmneziaKey(String link) {
         .replaceAll(r'$PRIMARY_DNS', '${root['dns1'] ?? '1.1.1.1'}')
         .replaceAll(r'$SECONDARY_DNS', '${root['dns2'] ?? '1.0.0.1'}');
     final name = '${root['description'] ?? root['hostName'] ?? ''}';
-    return parseWireGuardConf(conf, name: name)..link = link;
+    try {
+      return parseWireGuardConf(conf, name: name)..link = link;
+    } on LinkParseException {
+      // An incomplete container is not the whole key's verdict: the key
+      // may carry the real configuration in the next one.
+      continue;
+    }
   }
   throw LinkParseException(
       'Amnezia: this key has no WireGuard or AmneziaWG configuration');

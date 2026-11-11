@@ -294,6 +294,31 @@ void main() {
       expect(r.profiles.first.port, 443);
     });
 
+    test('a pre-1.11 wireguard outbound folds into the endpoint shape', () {
+      final r = parseImportText(jsonEncode({
+        'outbounds': [
+          {
+            'type': 'wireguard',
+            'tag': 'warp',
+            'server': 'engage.cloudflareclient.com',
+            'server_port': 2408,
+            'local_address': ['172.16.0.2/32'],
+            'private_key': wgPrivate,
+            'peer_public_key': wgPublic,
+            'reserved': [1, 2, 3],
+          },
+        ],
+      }));
+      final p = r.profiles.single;
+      expect(p.server, 'engage.cloudflareclient.com');
+      expect(p.port, 2408);
+      final peer = (p.outbound['peers'] as List).single as Map;
+      expect(peer['public_key'], wgPublic);
+      // The reservation travels with the peer: without it WARP refuses the
+      // handshake.
+      expect(peer['reserved'], [1, 2, 3]);
+    });
+
     test('reality without a public key is refused at import, not at start', () {
       final r = parseImportText(
           '${sampleLinks['vless-reality-vision']!.split('?').first}?security=reality#r');
