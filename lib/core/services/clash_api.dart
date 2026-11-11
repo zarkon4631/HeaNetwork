@@ -55,7 +55,10 @@ class ClashApi {
   /// request is even sent.
   Stream<TrafficSample> traffic() async* {
     try {
-      final res = await _send('GET', _uri('/traffic'));
+      // The connection timeout covers the connect alone; a core that takes
+      // the request and never answers must not hang the stream either.
+      final res =
+          await _send('GET', _uri('/traffic')).timeout(const Duration(seconds: 3));
       await for (final line
           in res.transform(utf8.decoder).transform(const LineSplitter())) {
         if (line.isEmpty) continue;
@@ -70,6 +73,8 @@ class ClashApi {
             (j['up'] as num?)?.toInt() ?? 0, (j['down'] as num?)?.toInt() ?? 0);
       }
     } on StateError {
+      return;
+    } on TimeoutException {
       return;
     } on IOException {
       return;

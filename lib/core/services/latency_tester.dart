@@ -208,8 +208,15 @@ class LatencyTester {
   }) async {
     if (profiles.isEmpty) return;
     if (await _runBatch(profiles, antiDpi, onResult, elevated)) return;
-    // The core refused the batch, so some profile is invalid. Bisect to
-    // find it instead of failing every server.
+    // A batch can also fail without any profile being at fault: the port it
+    // picked as free was taken again by the time the core bound it. Retry
+    // the batch as a whole before bisecting to blame a server.
+    if (profiles.length > 1 &&
+        await _runBatch(profiles, antiDpi, onResult, elevated)) {
+      return;
+    }
+    // The core refuses the batch twice, so some profile is invalid. Bisect
+    // to find it instead of failing every server.
     if (profiles.length == 1) {
       onResult(profiles.single, -1);
       return;

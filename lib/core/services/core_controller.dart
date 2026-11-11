@@ -115,6 +115,11 @@ class ProcessCoreController extends CoreController {
   Process? _xray;
   bool _cancelled = false;
 
+  /// Set as soon as Xray-core has exited during the start under way. Until
+  /// the core is up, the exit handler cannot tell that yet — and without
+  /// Xray the core has nowhere to send the traffic.
+  bool _xrayDied = false;
+
   /// Completes when the [start] under way has ended, however it ended.
   Future<void>? _starting;
 
@@ -153,7 +158,7 @@ class ProcessCoreController extends CoreController {
     final sink = _logSink;
     if (sink == null) return;
     sink.writeln(line);
-    _logFileBytes += line.length + 2;
+    _logFileBytes += utf8.encode(line).length + 2;
     if (_logFileBytes > _maxLogFileBytes) {
       // A long session at "debug" level: start a fresh file and keep the
       // full one as the previous, so the disk use stays bounded.
@@ -218,6 +223,7 @@ class ProcessCoreController extends CoreController {
       exited = true;
       if (_xray != process) return;
       _xray = null;
+      _xrayDied = true;
       _removePidFile(_xrayPidFile);
       // Without Xray-core the core has nowhere to send the traffic.
       await Future<void>.delayed(const Duration(milliseconds: 150));
@@ -301,6 +307,7 @@ class ProcessCoreController extends CoreController {
     }
     lastError = null;
     _cancelled = false;
+    _xrayDied = false;
     setStatus(CoreStatus.starting);
     final api = _apiOf(config);
     final ended = Completer<void>();
@@ -382,6 +389,14 @@ class ProcessCoreController extends CoreController {
         throw CoreStartTimeout(
             startTimeout, recent.isEmpty ? '' : summarizeCoreFailure([recent.last]));
       });
+      // Xray may have died while the core was still coming up: the exit
+      // handler above could not have blamed it yet, and a start without it
+      // must not pass as connected.
+      if (_xrayDied) {
+        throw CoreException(recent.isEmpty
+            ? 'Xray-core exited before the core was up'
+            : summarizeCoreFailure(recent));
+      }
       setStatus(CoreStatus.running);
     } on Object catch (e) {
       _process?.kill();

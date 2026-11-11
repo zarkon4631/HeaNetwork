@@ -90,7 +90,9 @@ class AppStore {
         await tmp.writeAsString(jsonEncode(snapshot()), flush: true);
         await tmp.rename(_file(name).path);
         lastWriteError = null;
-      } on FileSystemException catch (e) {
+      } on Object catch (e) {
+        // Anything a save throws must not poison the queue: the next save
+        // chains onto this future, and flush() waits for all of them.
         lastWriteError = e;
       }
     });

@@ -80,4 +80,25 @@ void main() {
       expect(AppSettings.fromJson({'logLevel': level}).logLevel, level);
     }
   });
+
+  test('a save that cannot encode its file does not poison the queue', () async {
+    final store = await load();
+    store.routing.domains.add(_UnencodableRule());
+    await store.saveRouting();
+    expect(store.lastWriteError, isNotNull);
+    // Later saves still happen, and flush() completes instead of throwing
+    // for every caller that ever follows.
+    store.settings.locale = 'ru';
+    await store.saveSettings();
+    await store.flush();
+    expect(
+        jsonDecode(File('${dir.path}/settings.json').readAsStringSync())['locale'],
+        'ru');
+  });
+}
+
+class _UnencodableRule extends DomainRule {
+  _UnencodableRule() : super(kind: DomainRuleKind.domainKeyword, value: 'junk');
+  @override
+  Map<String, dynamic> toJson() => throw StateError('cannot be encoded');
 }

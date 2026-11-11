@@ -178,9 +178,20 @@ void main() {
         const SocketException('no route to host'),
         http.ClientException('connection closed before full header was received'),
         TimeoutException('no answer'),
+        const HandshakeException('certificate verify failed'),
       ]) {
         expect((await failure(error)).code, SubscriptionError.unreachable, reason: '$error');
       }
+    });
+
+    test('an absurd expiry date is read as "no expiry", not a crash', () async {
+      final r = await fetchSubscription('https://panel.example/sub/abc',
+          client: MockClient((_) async => http.Response(
+              body([sampleLinks['tuic']!]), 200,
+              headers: {
+                'subscription-userinfo': 'upload=1; download=2; expire=999999999999',
+              })));
+      expect(r.expire, isNull);
     });
 
     test('what is not an address is not asked for at all', () async {

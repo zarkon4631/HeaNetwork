@@ -191,7 +191,12 @@ class Updater {
     } on TimeoutException {
       stalled();
     } finally {
-      await sink.close();
+      try {
+        await sink.close();
+      } on Object {
+        // A flush that fails (disk full) would swallow the error of the
+        // download itself; the checksum below catches a truncated file.
+      }
       hasher.close();
       // Half an installer is of no use to anybody.
       if (!complete) await _discard(file);

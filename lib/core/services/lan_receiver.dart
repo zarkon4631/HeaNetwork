@@ -132,7 +132,8 @@ class LanReceiver {
       await for (final chunk in request) {
         seen += chunk.length;
         // Past the limit nothing is kept, but the rest is still read so the
-        // sender gets a proper answer instead of a reset connection.
+        // sender gets a proper answer instead of a reset connection — up to
+        // a sane ceiling, so a wedged sender cannot hold this page forever.
         if (seen <= _maxBody) bytes.addAll(chunk);
         if (seen > _maxBody * 32) break;
       }
@@ -147,7 +148,13 @@ class LanReceiver {
     } on Object {
       response.statusCode = HttpStatus.badRequest;
     } finally {
-      await response.close();
+      // The phone may have hung up already, and the listener outlives this
+      // page: a throw here would be an unhandled error of its own.
+      try {
+        await response.close();
+      } on Object {
+        // Nothing to answer to, then.
+      }
     }
   }
 

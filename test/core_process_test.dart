@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:heanetwork/core/config/config_builder.dart' show xrayConfigKey;
 import 'package:heanetwork/core/models/profile.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/parsers/import_parser.dart';
@@ -62,6 +63,59 @@ void main() {
     await calledOff;
     expect(early.status, CoreStatus.stopped);
     expect(early.logs, isEmpty, reason: 'nothing was launched');
+  });
+
+  test('an Xray that dies while the core starts fails the start', () async {
+    final dir = Directory.systemTemp.createTempSync('hea_xray_');
+    // Both stand-ins are batch files, so the test needs no core at all.
+    // The fake Xray takes the SOCKS port it is told to take, then goes
+    // away; the fake core becomes "started" long after that, the way a
+    // core that is slow to boot would. The start must not pass as
+    // connected without Xray.
+    final xrayPort = await freeTcpPort();
+    final xray = File('${dir.path}\\fake-xray.cmd')..writeAsStringSync([
+      '@echo off',
+      'powershell -NoProfile -Command '
+          '"\$l = [System.Net.Sockets.TcpListener]::new('
+          '[System.Net.IPAddress]::Loopback, $xrayPort); '
+          '\$l.Start(); Start-Sleep -Milliseconds 300; \$l.Stop()"',
+      '',
+    ].join('\r\n'));
+    final fakeCore = File('${dir.path}\\fake-core.cmd')..writeAsStringSync([
+      '@echo off',
+      'ping -n 3 127.0.0.1 >nul',
+      'echo sing-box started',
+      'ping -n 2 127.0.0.1 >nul',
+      '',
+    ].join('\r\n'));
+
+    final controller = ProcessCoreController(
+        corePath: fakeCore.path, xrayPath: xray.path, runDir: Directory('${dir.path}\\run'));
+    addTearDown(() async {
+      await controller.stop();
+      // A ping child of the batch file may still hold the folder.
+      for (var i = 0; i < 10; i++) {
+        try {
+          dir.deleteSync(recursive: true);
+          return;
+        } on FileSystemException {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+      }
+    });
+
+    final config = minimalConfig(await freeTcpPort());
+    config[xrayConfigKey] = {
+      'log': {'loglevel': 'warning'},
+      'inbounds': [
+        {'listen': '127.0.0.1', 'port': xrayPort, 'protocol': 'socks'},
+      ],
+      'outbounds': [
+        {'protocol': 'freedom'},
+      ],
+    };
+    await expectLater(controller.start(config), throwsA(isA<CoreException>()));
+    expect(controller.status, CoreStatus.stopped);
   });
 
   if (!File(corePath).existsSync()) {

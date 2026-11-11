@@ -154,6 +154,10 @@ Future<SubscriptionResult> fetchSubscription(
       throw SubscriptionException(e.message, code: SubscriptionError.unreachable);
     } on http.ClientException catch (e) {
       throw SubscriptionException(e.message, code: SubscriptionError.unreachable);
+    } on IOException catch (e) {
+      // A TLS handshake failure, mostly: it surfaces as a plain
+      // HandshakeException, which the clauses above do not carry.
+      throw SubscriptionException('$e', code: SubscriptionError.unreachable);
     }
 
     // 3x-ui answers a refused device with 404 plus one of these markers.
@@ -191,7 +195,9 @@ Future<SubscriptionResult> fetchSubscription(
       upload: info['upload'],
       download: info['download'],
       total: info['total'],
-      expire: expire == null || expire == 0
+      // The header is untrusted input: a date past the end of what DateTime
+      // can carry (year 9999) is read as "no expiry", not as a crash.
+      expire: expire == null || expire == 0 || expire > 253402300799
           ? null
           : DateTime.fromMillisecondsSinceEpoch(expire * 1000),
       updateIntervalHours: interval != null && interval > 0 ? interval : null,
