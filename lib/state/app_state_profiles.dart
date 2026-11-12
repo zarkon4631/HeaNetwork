@@ -100,11 +100,13 @@ mixin AppStateProfiles on AppStateBase {
   Future<Subscription> addSubscription(String url, {String? name}) async {
     final sub = Subscription(name: name ?? '', url: subscriptionAddress(url));
     final result = await _fetch(sub.url);
-    _applySubscription(sub, result);
     if (sub.name.isEmpty) {
       sub.name = result.title ?? Uri.tryParse(sub.url)?.host ?? sub.url;
     }
+    // The subscription must be in the list before it is applied: applying it
+    // asks for the panel's rule-sets, which counts what is in the list.
     subscriptions.add(sub);
+    _applySubscription(sub, result);
     unawaited(store.saveSubscriptions());
     profilesChanged();
     return sub;

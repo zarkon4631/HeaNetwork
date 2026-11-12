@@ -378,6 +378,9 @@ abstract class AppStateBase extends ChangeNotifier {
     }
     await extractRuleSets();
     await fetchPanelRuleSets();
+    // What the pages show as missing has changed, even when nothing new
+    // could be fetched this time.
+    notifyListeners();
   }
 
   // ---- lifecycle ----------------------------------------------------------

@@ -228,6 +228,11 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
   LanReceiver? _receiver;
   StreamSubscription<String>? _sub;
   var _starting = true;
+
+  /// Claims the start synchronously: a locale change while the server is
+  /// being set up fires [didChangeDependencies] again, and two starts would
+  /// leave the loser's server running for good.
+  var _startInProgress = false;
   String? _lastResult;
 
   @override
@@ -237,6 +242,16 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
   }
 
   Future<void> _start() async {
+    if (_startInProgress) return;
+    _startInProgress = true;
+    try {
+      await _startInner();
+    } finally {
+      _startInProgress = false;
+    }
+  }
+
+  Future<void> _startInner() async {
     final russian = Localizations.localeOf(context).languageCode == 'ru';
     LanReceiver? receiver;
     try {

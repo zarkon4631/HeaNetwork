@@ -189,15 +189,34 @@ mixin AppStateConnection on AppStateBase {
       final note = jsonDecode(await _activeFile.readAsString()) as Map;
       final port = (note['clashPort'] as num?)?.toInt() ?? 0;
       final secret = '${note['clashSecret'] ?? ''}';
-      if (port <= 0) return;
       final id = note['profileId'];
       if (id is String && profiles.any((p) => p.id == id)) {
         settings.selectedProfileId = id;
         unawaited(store.saveSettings());
       }
       activeMode = ConnectionMode.tun;
-      _clash = ClashApi(port, secret);
-      _startStats();
+      if (port > 0) {
+        final clash = ClashApi(port, secret);
+        // The note may name a core that is gone (the service restarted its
+        // own on another port): ask before showing numbers that would
+        // otherwise sit frozen at zero for the whole run.
+        var live = false;
+        for (var i = 0; i < 3 && !live; i++) {
+          live = await clash.ping();
+          if (!live) await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+        if (live) {
+          _clash?.close();
+          _clash = clash;
+          _startStats();
+        } else {
+          clash.close();
+          connectedSince = DateTime.now();
+        }
+      } else {
+        // The service is running, whatever the note says about its API.
+        connectedSince = DateTime.now();
+      }
     } on Object {
       // No note or an unreadable one: connected, just without live numbers.
       connectedSince = DateTime.now();
@@ -244,6 +263,10 @@ mixin AppStateConnection on AppStateBase {
   }
 
   Future<void> _connectInner() async {
+    // This connection's own generation: a disconnect during it bumps the
+    // counter and every step below gives up, and the deferred note delete
+    // of a disconnect before it must not touch this connection's note.
+    final gen = ++_connectGen;
     if (status == CoreStatus.stopping) {
       // A connect that lands while the core is stopping would otherwise be
       // dropped on the floor. [CoreController.stop] waits for the stop.
@@ -260,7 +283,6 @@ mixin AppStateConnection on AppStateBase {
     if (_needsElevation) throw ElevationRequired();
 
     _connectingSince = DateTime.now();
-    final gen = _connectGen;
     var connected = false;
     try {
       final mixedPort = await freeTcpPort(settings.mixedPort);
@@ -502,6 +524,9 @@ mixin AppStateConnection on AppStateBase {
   }
 
   void _startStats() {
+    // An attach overtaken by another one (a fast widget toggle) must not
+    // leave the loser's subscription listening behind it.
+    _trafficSub?.cancel();
     connectedSince = DateTime.now();
     totalUp = totalDown = 0;
     speed = const TrafficSample(0, 0);

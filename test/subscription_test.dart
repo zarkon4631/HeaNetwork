@@ -319,6 +319,28 @@ void main() {
           reason: 'the selection moves on when its server disappears');
     });
 
+    test('the rule-sets of a routing profile arrive with the subscription', () async {
+      final routingLink = 'happ://routing/onadd/${base64.encode(utf8.encode(jsonEncode({
+            'Name': 'Panel',
+            'GlobalProxy': 'true',
+            'DirectSites': ['geosite:category-ru'],
+          })))}';
+      final state = makeState(
+          populated: false,
+          subscriptionClient: MockClient((req) async {
+            if (req.url.host.endsWith('githubusercontent.com')) {
+              // The binary rule-set format starts with the magic "SRS".
+              return http.Response('SRS1', 200);
+            }
+            return http.Response(body([sampleLinks['vless-reality-vision']!]), 200,
+                headers: {'routing': routingLink});
+          }));
+      await state.addSubscription('https://panel.example/sub/abc');
+      // Fetched as part of adding, not only at the next refresh or restart.
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(state.ruleSets, contains('geosite-category-ru'));
+    });
+
     test('a routine refresh does not ask for a reconnect', () async {
       final a = sampleLinks['vless-reality-vision']!;
       final changed = a.replaceFirst('www.microsoft.com', 'www.apple.com');
