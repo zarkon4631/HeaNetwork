@@ -19,7 +19,7 @@
     },
     "geoip-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
-      "sha256": "bdca5cdb44cdcf0940001e5952386822a6f4ffa8b2c8eea00340aa6f585c7f9d"
+      "sha256": "55869c680cf6489991cbfdf62c2f5da77ea85bf571babddb6cd9c4941d84cbfa"
     },
     "geosite-category-ads-all": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
