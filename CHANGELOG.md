@@ -3,6 +3,18 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.18
+
+- Серверы с транспортом h2 из JSON-подписки больше не импортируются «успешно» без своих настроек: раньше адрес хоста и путь терялись, и такой сервер молча не подключался. Настройки ранних данных WebSocket из JSON-конфигов тоже больше не теряются.
+- Если Xray-core (серверы MASQUE и XDRIVE) умирал, пока ядро ещё запускалось, приложение показывало «Подключено» с мёртвым туннелем. Теперь запуск честно заканчивается ошибкой.
+- Списки маршрутизации, о которых говорит новая подписка, скачиваются сразу при её добавлении, а не при первом обновлении: раньше первое подключение жаловалось на «пропущенную маршрутизацию», хотя правила в подписке были.
+- На Android, если VPN поднял виджет, а ядро к моменту открытия приложения уже умерло, скорость и счётчики больше не стоят на нуле весь сеанс.
+- Запись подписки с пустым паролем или UUID теперь отклоняется при импорте с внятной ошибкой, а не падает ядром при подключении. Порт текстом в настройках XHTTP и неполный контейнер Amnezia-ключа больше не срывают импорт остальных серверов, а WARP-конфиги старого формата sing-box сохраняют свои reserved-байты, без которых сервер отказывает в рукопожатии.
+- Ошибка TLS-соединения с панелью показывается как «сервер недоступен», а не сырым текстом исключения. Любой сбой сохранения настроек больше не отключает все последующие сохранения до перезапуска приложения.
+- Измерение задержки: случайная коллизия свободных портов больше не принимается за неработающий сервер, из-за которой разом все серверы могли показаться недоступными. Списки маршрутизации, обновлённые после сбоя ядра, сразу отражаются на странице «Маршруты».
+
+English: servers with the h2 transport from a JSON subscription no longer import without their host and path — such a server used to connect to nothing, silently; WebSocket early-data settings from JSON configs are kept too. An Xray-core that died while the core was still starting no longer leaves a "connected" badge over a dead tunnel. The routing lists a new subscription refers to are downloaded when it is added, not at the first refresh, so the first connect no longer complains about skipped routing. On Android, a VPN started by the widget whose engine has since died no longer shows zeroed speed for the whole session. Entries with empty credentials are refused at import with a clear message instead of a core failure at connect; a text port in XHTTP download settings and an incomplete Amnezia container no longer cost the rest of the import, and old-format WARP configs keep their reserved bytes. A TLS failure to the panel reads as "unreachable", a failed settings save no longer disables every later save until a restart, and a port collision in the latency test no longer passes for dead servers.
+
 ## 1.0.17
 
 - Отключение во время установки соединения — последнее слово. Раньше, если нажать «Отключить», пока приложение проверяло туннель (до нескольких секунд после старта), ядро могло подняться снова уже после отключения: приложение показывало «Подключено», хотя пользователь выключал VPN. Теперь любое отключение останавливает установку соединения на любом шаге.
