@@ -337,8 +337,16 @@ void main() {
           }));
       await state.addSubscription('https://panel.example/sub/abc');
       // Fetched as part of adding, not only at the next refresh or restart.
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      // The download runs unawaited, so poll for it: a fixed delay is too
+      // short on a loaded CI runner.
+      for (var i = 0; i < 50 && !state.ruleSets.contains('geosite-category-ru'); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
       expect(state.ruleSets, contains('geosite-category-ru'));
+      expect(
+          File('${state.paths.ruleSets.path}${Platform.pathSeparator}geosite-category-ru.srs')
+              .readAsStringSync(),
+          'SRS1');
     });
 
     test('a routine refresh does not ask for a reconnect', () async {
