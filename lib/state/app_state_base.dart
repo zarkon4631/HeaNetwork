@@ -23,6 +23,17 @@ import 'app_paths.dart';
 /// Thrown by [AppState.connect] when TUN mode needs administrator rights.
 class ElevationRequired implements Exception {}
 
+/// How restoring a backup copy ended.
+enum BackupRestore {
+  ok,
+
+  /// Not a backup of this app.
+  notABackup,
+
+  /// A sealed copy whose password did not open it.
+  badPassword,
+}
+
 class ImportOutcome {
   ImportOutcome({
     this.added = 0,
@@ -31,6 +42,7 @@ class ImportOutcome {
     this.unsupported = const [],
     this.failure,
     this.routing,
+    this.thisDevice = const [],
   });
 
   /// Set when the text was a routing link (`happ://routing/...`): the
@@ -47,9 +59,18 @@ class ImportOutcome {
 
   /// Set when the whole import failed (a subscription could not be loaded).
   final Object? failure;
+
+  /// Names of the servers that were added and that point at this device
+  /// itself; see [ProxyProfile.isThisDevice].
+  final List<String> thisDevice;
 }
 
-const bundledRuleSets = [ruleSetRuSite, ruleSetRuIp, ruleSetAds];
+const bundledRuleSets = [
+  ruleSetRuSite,
+  ruleSetRuIp,
+  ruleSetAds,
+  ...googleRuleSets,
+];
 
 /// [AppState.error] when there is no server to connect to.
 const errorNoServer = 'no-server';

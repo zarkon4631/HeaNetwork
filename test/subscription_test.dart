@@ -319,6 +319,43 @@ void main() {
           reason: 'the selection moves on when its server disappears');
     });
 
+    test('a refresh keeps what the user chose for a server, and favourites come first',
+        () async {
+      final a = sampleLinks['vless-reality-vision']!;
+      final b = sampleLinks['trojan-tls']!;
+      final c = sampleLinks['tuic']!;
+      final state = makeState(
+          populated: false,
+          subscriptionClient: panel([
+            [a, b],
+            [b, a], // reordered, nothing else
+            [b, c, a], // and a server added
+          ]));
+      final sub = await state.addSubscription('https://panel.example/sub/abc');
+      final vless = state.profilesOf(sub.id).first;
+      final trojan = state.profilesOf(sub.id).last;
+      state.setBlockAds([vless], true);
+      state.toggleFavorite(trojan);
+      expect(state.profilesOf(sub.id).map((p) => p.name), ['Trojan', 'VLESS Reality'],
+          reason: 'a favourite is kept at the top of its group');
+
+      // Whatever order the panel sends them in.
+      await state.refreshSubscription(sub);
+      expect(state.profilesOf(sub.id).map((p) => (p.name, p.blockAds, p.favorite)),
+          [('Trojan', false, true), ('VLESS Reality', true, false)]);
+      await state.refreshSubscription(sub);
+      // A server that is new starts with nothing chosen for it; the others
+      // keep their choices, and follow the panel's order.
+      expect(state.profilesOf(sub.id).map((p) => (p.name, p.blockAds, p.favorite)), [
+        ('Trojan', false, true),
+        ('TUIC', false, false),
+        ('VLESS Reality', true, false),
+      ]);
+      // And a favourite is taken off the same way.
+      state.toggleFavorite(state.profiles.firstWhere((p) => p.id == trojan.id));
+      expect(state.profilesOf(sub.id).where((p) => p.favorite), isEmpty);
+    });
+
     test('the rule-sets of a routing profile arrive with the subscription', () async {
       final routingLink = 'happ://routing/onadd/${base64.encode(utf8.encode(jsonEncode({
             'Name': 'Panel',

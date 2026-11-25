@@ -219,9 +219,6 @@ class S {
       'Домены .ru, .рф, .su и российские IP-адреса идут мимо VPN: банки, Госуслуги и магазины работают как обычно',
       'Domains .ru, .рф, .su and Russian IP addresses bypass the VPN, so banks and local services work as usual');
   String get blockAds => _t('Блокировать рекламу', 'Block ads');
-  String get blockAdsHint => _t(
-      'Отклонять запросы к известным рекламным и следящим доменам',
-      'Reject requests to known advertising and tracking domains');
   String get addSite => _t('Добавить сайт или адрес', 'Add a site or address');
   String get siteExample => _t(
       'Например: youtube.com, 10.0.0.0/8 или слово из адреса',
@@ -457,6 +454,72 @@ class S {
       'Показ меняется сразу. Более подробные строки ядро начнёт писать после переподключения.',
       'The view changes at once. The core starts writing more detailed lines after a reconnect.');
   String deviceModel(String model) => _t('Устройство: $model', 'Device: $model');
+
+  // ---- servers: search, favourites, ads per server, this device (1.0.19)
+  String get searchServers => _t('Поиск сервера', 'Search servers');
+  String get searchNothing => _t('По этому запросу серверов нет', 'No server matches');
+  String get searchReset => _t('Сбросить поиск', 'Clear the search');
+  String get favourite => _t('В избранное', 'Add to favourites');
+  String get unfavourite => _t('Убрать из избранного', 'Remove from favourites');
+  String get favourited => _t('В избранном', 'Favourite');
+  String get blockAdsAll =>
+      _t('Блокировать рекламу на всех серверах', 'Block ads on every server');
+  String get blockAdsPerServerHint => _t(
+      'Задаётся у каждого сервера отдельно: меню ⋮ у сервера или у подписки',
+      'Set on each server on its own: the ⋮ menu of a server, or of its subscription');
+  String get thisDeviceTitle =>
+      _t('Сервер указывает на само это устройство', 'A server points at this device itself');
+  String get thisDeviceMark => _t('адрес самого устройства', 'address of this device');
+
+  // ---- what the core says about a connection, in a person's words (1.0.19)
+  String get realityTitle => _t(
+      'Сервер не прошёл проверку Reality', 'The server failed the Reality check');
+  String get realityHint => _t(
+      'На запрос ответил не ваш сервер, а кто-то посередине: так выглядит подмена потока провайдером или ТСПУ. Соединение разорвано само, это защита. Если так происходит с каждым подключением, на сервере сменились ключ или короткий идентификатор либо сам сервер недоступен. Помогают другой сервер и меньше программ через VPN.',
+      'Someone in the middle answered instead of your server: this is what a provider or a TSPU rerouting the flow looks like. The connection was dropped on purpose, as a protection. If every connection fails this way, the key or the short id on the server has changed, or the server is down. Another server and fewer applications through the VPN help.');
+  String realitySeen(int n) => _t(
+      'За этот сеанс проверку Reality не прошли $n ${_plural(n, 'соединение', 'соединения', 'соединений')}.',
+      '$n ${n == 1 ? 'connection' : 'connections'} failed the Reality check this session.');
+  String get thisDeviceHint => _t(
+      'На этом устройстве по этому адресу ничего не отвечает. Проверьте адрес сервера: возможно, ссылка скопирована с самой панели.',
+      'Nothing answers at that address on this device. Check the server address: the link may have been copied from the panel.');
+  String thisDeviceWarning(String name) => _t(
+      'Внимание: «$name» указывает на само это устройство. Через такой сервер интернет не появится, если только на нём не работает другой прокси.',
+      'Warning: "$name" points at this device itself. It brings no internet unless another proxy runs on it.');
+
+  // ---- backup copies (1.0.19)
+  String get secBackup => _t('Резервная копия', 'Backup');
+  String get backupHint => _t(
+      'Всё, что есть в приложении, — одним текстом, с паролем или без',
+      'Everything the app holds, as one text, with a password or without');
+  String get backupBody => _t(
+      'В копии серверы, подписки и настройки, включая ключи и пароли серверов. С паролем копия зашифрована (AES-256), без пароля лежит открытым текстом.',
+      'The copy holds the servers, subscriptions and settings, server keys and passwords included. With a password it is encrypted (AES-256), without one it is plain text.');
+  String get backupCreate => _t('Создать копию', 'Make a copy');
+  String get backupRestore => _t('Восстановить из копии', 'Restore from a copy');
+  String get backupPassword => _t('Пароль копии', 'Copy password');
+  String get backupPasswordHint => _t(
+      'Необязательно. С паролем копия шифруется, без — остаётся открытым текстом',
+      'Optional. With a password the copy is encrypted, without one it stays plain text');
+  String get backupCopy => _t('Скопировать', 'Copy');
+  String get backupSaveFile => _t('Сохранить в файл…', 'Save to file…');
+  String get backupCopied => _t('Копия в буфере обмена', 'The copy is in the clipboard');
+  String get backupSaved => _t('Копия сохранена в файл', 'The copy was saved to a file');
+  String get backupFileFailed => _t(
+      'Не удалось записать или прочитать файл', 'Could not write or read the file');
+  String get backupPasteHint =>
+      _t('Текст копии — из буфера или из файла', 'The text of the copy, from the clipboard or a file');
+  String get backupPaste => _t('Вставить', 'Paste');
+  String get backupChooseFile => _t('Файл…', 'File…');
+  String get backupRestoreAction => _t('Восстановить', 'Restore');
+  String get backupRestoreQ => _t(
+      'Восстановить эту копию? Текущие серверы, подписки и настройки будут заменены тем, что в ней.',
+      'Restore this copy? The current servers, subscriptions and settings are replaced with what it holds.');
+  String get backupRestored => _t('Копия восстановлена', 'The copy was restored');
+  String get backupNotABackup => _t('Это не копия HeaNetwork', 'This is not a HeaNetwork backup');
+  String get backupBadPassword => _t(
+      'Не удалось расшифровать: проверьте пароль и целостность текста',
+      'Could not decrypt: check the password and that the text is whole');
 
   // ---- tray
   String get trayShow => _t('Открыть HeaNetwork', 'Open HeaNetwork');

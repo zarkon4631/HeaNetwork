@@ -364,6 +364,33 @@ void main() {
     });
   });
 
+  group('a server that is this device itself', () {
+    ProxyProfile at(String host) => parseLink('vless://$uuid@$host:443?security=none#x');
+
+    test('is known by its address', () {
+      for (final host in [
+        '127.0.0.1', '127.8.8.8', 'localhost', 'LOCALHOST', 'db.localhost', '0.0.0.0',
+        '::1', '::',
+      ]) {
+        expect(at(host).isThisDevice, isTrue, reason: host);
+      }
+      for (final host in [
+        'example.com', '10.0.0.1', '192.168.1.1', '172.16.0.1', '169.254.1.1',
+        'localhost.example.com', '[2001:db8::1]', 'notlocalhost',
+      ]) {
+        expect(at(host).isThisDevice, isFalse, reason: host);
+      }
+    });
+
+    test('and is still only a server: it imports and it stores', () {
+      final p = parseImportText('vless://$uuid@localhost:443?security=none#panel')
+          .profiles
+          .single;
+      expect(p.isThisDevice, isTrue);
+      expect(ProxyProfile.fromJson(p.toJson()).isThisDevice, isTrue);
+    });
+  });
+
   group('domain rule guess', () {
     test('kinds', () {
       expect(DomainRule.guess('https://www.Example.com/path', RouteAction.direct).value,

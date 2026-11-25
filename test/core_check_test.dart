@@ -50,7 +50,6 @@ List<ProxyProfile> allProfiles() => [
 RoutingSettings busyRouting() => RoutingSettings(
       defaultAction: RouteAction.proxy,
       ruDirect: true,
-      blockAds: true,
       apps: [
         AppRule(name: 'Chrome', processName: 'chrome.exe', action: RouteAction.direct),
         AppRule(
@@ -109,7 +108,8 @@ void main() {
     );
     for (final p in allProfiles()) {
       final c = buildConfig(
-        profile: p,
+        // Ads are blocked for this server, as a user can choose per server.
+        profile: p..blockAds = true,
         settings: settings,
         routing: busyRouting(),
         env: env(CorePlatform.windows, elevated: true),
@@ -159,7 +159,7 @@ void main() {
   }, skip: skip);
 
   test('android: per-app split via include/exclude package', () async {
-    final vless = parseLink(sampleLinks['vless-reality-vision']!);
+    final vless = parseLink(sampleLinks['vless-reality-vision']!)..blockAds = true;
     final proxyAll = buildConfig(
       profile: vless,
       settings: AppSettings(),

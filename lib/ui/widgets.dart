@@ -343,6 +343,22 @@ Future<bool> confirm(BuildContext context, String title,
       false;
 }
 
+/// Says something to be read before it goes away, as a snackbar is not: a
+/// dialog with the one button that closes it.
+Future<void> showNotice(BuildContext context,
+        {required String title, required String body, IconData? icon}) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: icon == null ? null : Icon(icon),
+        title: Text(title),
+        content: SizedBox(width: 400, child: Text(body)),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(context), child: Text(S.of(context).ok)),
+        ],
+      ),
+    );
+
 /// Asks for a line of text. Returns it trimmed, or null when the user
 /// backed out.
 Future<String?> promptText(BuildContext context,

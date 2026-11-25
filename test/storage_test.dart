@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:heanetwork/core/models/profile.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/services/storage.dart';
 
@@ -40,6 +41,61 @@ void main() {
     final store = await load();
     expect(store.profiles.map((p) => p.id), ['a']);
     expect(store.subscriptions.map((s) => s.id), ['s']);
+  });
+
+  group('blocking ads', () {
+    Map<String, Object?> server(String id) => {
+          'id': id,
+          'name': id,
+          'type': 'vless',
+          'outbound': {'type': 'vless', 'server': 'h.example', 'server_port': 443},
+        };
+
+    test('a switch that was on for every server becomes every server\'s own', () async {
+      put('profiles.json', [server('a'), {...server('b'), 'favorite': true}]);
+      put('routing.json', {'ruDirect': true, 'blockAds': true});
+      final store = await load();
+      expect(store.profiles.map((p) => p.blockAds), [true, true]);
+      expect(store.profiles.last.favorite, isTrue);
+
+      // And it is the servers' now: the old switch is gone from the file, so
+      // the next start does not turn blocking back on where it was turned off.
+      await store.flush();
+      final routing =
+          jsonDecode(File('${dir.path}/routing.json').readAsStringSync()) as Map;
+      expect(routing.containsKey('blockAds'), isFalse);
+
+      store.profiles.first.blockAds = false;
+      await store.saveProfiles();
+      final again = await load();
+      expect(again.profiles.map((p) => p.blockAds), [false, true]);
+    });
+
+    test('a switch that was off leaves every server as it was', () async {
+      put('profiles.json', [server('a'), {...server('b'), 'blockAds': true}]);
+      put('routing.json', {'ruDirect': true, 'blockAds': false});
+      final store = await load();
+      expect(store.profiles.map((p) => p.blockAds), [false, true]);
+    });
+
+    test('the choice survives being stored', () async {
+      put('profiles.json', []);
+      final store = await load();
+      store.profiles.addAll([
+        ProxyProfile.fromJson(server('a'))
+          ..blockAds = true
+          ..favorite = true,
+        ProxyProfile.fromJson(server('b')),
+      ]);
+      await store.saveProfiles();
+      final again = await load();
+      final saved = jsonDecode(File('${dir.path}/profiles.json').readAsStringSync()) as List;
+      // What is off is not written at all.
+      expect((saved[0] as Map).keys, containsAll(['blockAds', 'favorite']));
+      expect((saved[1] as Map).keys, isNot(contains('blockAds')));
+      expect(again.profiles.map((p) => (p.blockAds, p.favorite)),
+          [(true, true), (false, false)]);
+    });
   });
 
   test('settings of the wrong shape give way to the defaults and are kept aside',

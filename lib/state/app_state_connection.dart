@@ -10,6 +10,7 @@ import '../core/models/profile.dart';
 import '../core/models/settings.dart';
 import '../core/services/clash_api.dart';
 import '../core/services/core_controller.dart';
+import '../core/services/diagnostics.dart';
 import '../core/services/latency_tester.dart';
 import '../core/models/route_traffic.dart';
 import '../platform/windows/elevation.dart';
@@ -38,17 +39,40 @@ mixin AppStateConnection on AppStateBase {
   /// network stack and moved to gVisor, which is now the setting.
   bool stackSwitched = false;
 
+  /// Replies since this connection came up that did not prove to come from
+  /// the server: see [LogHint.reality]. Counted for the connection, and
+  /// started again with the next one.
+  int realityFailures = 0;
+
+  /// From this many on, the home screen says so: one can be a stray.
+  static const realityNoticeAt = 3;
+
+  /// Whether the home screen is to say that replies are not proving to come
+  /// from the server.
+  bool get realitySuspected => isConnected && realityFailures >= realityNoticeAt;
+
   /// The mode the running core was started in.
   ConnectionMode? activeMode;
 
   ClashApi? _clash;
   StreamSubscription<TrafficSample>? _trafficSub;
+  StreamSubscription<String>? _logSub;
   CoreStatus _lastStatus = CoreStatus.stopped;
   Timer? _subscriptionTimer;
 
   bool get isConnected => status == CoreStatus.running;
   bool get isBusy =>
       status == CoreStatus.starting || status == CoreStatus.stopping;
+
+  void _onCoreLine(String line) {
+    if (logHintOf(line) != LogHint.reality) return;
+    realityFailures++;
+    // Told once when the home screen first has something to say, and then
+    // by tens: the number it shows stays near enough.
+    if (realityFailures == realityNoticeAt || realityFailures % 10 == 0) {
+      notifyListeners();
+    }
+  }
 
   // ---- selection ----------------------------------------------------------
 
@@ -60,9 +84,14 @@ mixin AppStateConnection on AppStateBase {
         (profiles.isEmpty ? null : profiles.first);
   }
 
+  /// The servers of one subscription, or of the user's own list for null:
+  /// favourites first, the rest in the order they came.
   @override
-  List<ProxyProfile> profilesOf(String? subscriptionId) =>
-      profiles.where((p) => p.subscriptionId == subscriptionId).toList();
+  List<ProxyProfile> profilesOf(String? subscriptionId) => [
+        for (final favourite in [true, false])
+          for (final p in profiles)
+            if (p.subscriptionId == subscriptionId && p.favorite == favourite) p,
+      ];
 
   void selectProfile(String id) {
     settings.selectedProfileId = id;
@@ -82,6 +111,7 @@ mixin AppStateConnection on AppStateBase {
   /// Loads rule-sets from the app bundle, undoes leftovers of a crashed
   /// previous run, and connects if the user asked for that.
   Future<void> init({bool connect = false}) async {
+    _logSub = core.logStream.listen(_onCoreLine);
     await extractRuleSets();
     if (routing.seedDefaults(
         windows: isWindows, exists: (path) => File(path).existsSync())) {
@@ -115,6 +145,7 @@ mixin AppStateConnection on AppStateBase {
   /// subscription refresh and the statistics stop with the state.
   @override
   void disposeConnection() {
+    _logSub?.cancel();
     _subscriptionTimer?.cancel();
     _stopStats();
     trafficTick.dispose();
@@ -568,6 +599,8 @@ mixin AppStateConnection on AppStateBase {
 
   void _stopStats() {
     _routeTimer?.cancel();
+    // What was wrong was wrong with that connection.
+    realityFailures = 0;
     _routeTimer = null;
     _seenConnections.clear();
     _trafficSub?.cancel();

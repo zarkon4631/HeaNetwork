@@ -233,12 +233,13 @@ class RoutingPage extends StatelessWidget {
                 value: routing.ruDirect,
                 onChanged: (v) => state.updateRouting((r) => r.ruDirect = v),
               ),
-              SwitchListTile(
-                secondary: const Icon(Icons.hide_source_rounded),
+              // Blocking ads is each server's own setting; this says where
+              // it went for whoever looks for it here.
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.hide_source_outlined),
                 title: Text(s.blockAds),
-                subtitle: Text(s.blockAdsHint),
-                value: routing.blockAds,
-                onChanged: (v) => state.updateRouting((r) => r.blockAds = v),
+                subtitle: Text(s.blockAdsPerServerHint),
               ),
               for (final rule in routing.domains) _DomainRuleTile(rule: rule),
             ],

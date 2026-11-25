@@ -18,11 +18,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: 3.47.6
+  FLUTTER_VERSION: 3.47.9
   # The toolchain line the pinned core is developed with. At least 1.26.10:
   # from it on, certificate chains through the eight intermediates Go
   # distrusted on 2026-10-19 are refused (CVE-2026-111943).
-  GO_VERSION: 1.26.10
+  GO_VERSION: 1.26.11
   # r28c is the NDK this Flutter release asks for (28.2.13676358), and a patch
   # release of the r28 the core is developed against, so one copy serves both.
   NDK_VERSION: r28c
@@ -135,6 +135,27 @@ jobs:
           & $iscc "/DAppVersion=$env:VERSION" installer/windows/heanetwork.iss
           if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
           Get-ChildItem dist | Select-Object Name, Length
+
+      # Authenticode identifies the publisher of the installer.
+      # Runs only when the repository holds the certificate; without it the
+      # builds stay as they are. To enable: buy a code-signing certificate
+      # (any PFX, OV or EV), then set two repository secrets:
+      #   WINDOWS_CERT_PFX        the .pfx file, base64 of its bytes
+      #   WINDOWS_CERT_PASSWORD   the .pfx password
+      - name: Sign the installer
+        if: ${{ secrets.WINDOWS_CERT_PFX != '' }}
+        shell: pwsh
+        env:
+          CERT: ${{ secrets.WINDOWS_CERT_PFX }}
+          PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String("$env:CERT"))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName | Select-Object -Last 1).FullName
+          & $signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+            /f cert.pfx /p "$env:PASSWORD" "dist/HeaNetwork-$env:VERSION-windows-x64-setup.exe"
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          Remove-Item cert.pfx
       - uses: actions/upload-artifact@v7
         with:
           name: windows

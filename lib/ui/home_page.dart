@@ -106,6 +106,13 @@ class HomePage extends StatelessWidget {
               title: S.of(context).stackSwitched,
               body: S.of(context).stackSwitchedHint,
             ),
+          if (state.realitySuspected)
+            _NoticeCard(
+              icon: Icons.shield_moon_outlined,
+              title: S.of(context).realityTitle,
+              body: S.of(context).realityHint,
+              detail: S.of(context).realitySeen(state.realityFailures),
+            ),
         ],
       );
 
@@ -351,7 +358,7 @@ class SessionCard extends StatelessWidget {
     final exceptions = routing.apps.where((a) => a.enabled).length +
         routing.domains.where((d) => d.enabled).length +
         (routing.ruDirect ? 1 : 0) +
-        (routing.blockAds ? 1 : 0);
+        (profile?.blockAds == true ? 1 : 0);
     final routes = panel != null
         ? s.routingFromPanel(panel.name)
         : (routing.defaultAction == RouteAction.proxy

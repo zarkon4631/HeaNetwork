@@ -3,6 +3,17 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.19
+
+- Резервная копия всего приложения: серверы, подписки, маршрутизация и настройки сохраняются одним текстом в буфер обмена или файл и восстанавливаются на другом устройстве. Пароль шифрует копию по AES-256; без пароля она остаётся открытым текстом. Неверный пароль, повреждённая или неполная копия не меняет текущие данные.
+- В списке из восьми и более серверов появляется поиск по названию, адресу и описанию. Любой сервер можно добавить в избранное — он держится в начале своей группы и не теряет отметку при обновлении подписки.
+- Блокировка рекламы теперь задаётся отдельно для каждого сервера, а для всей подписки — одним пунктом меню. Прежний общий переключатель при обновлении автоматически переносится на все имеющиеся серверы.
+- Ссылки на localhost и адреса самого устройства отмечаются при импорте и в списке: через такой сервер интернет не появится, если на устройстве не работает другой прокси. Повторные ошибки Reality и соединения с адресом самого устройства получили понятные объяснения на главном экране и в журнале.
+- При маршрутизации российских сайтов напрямую Google и YouTube на российских кэширующих адресах снова идут через VPN: по IP такие адреса выглядят российскими, хотя сами сервисы должны оставаться в туннеле.
+- Xray-core обновлён до 26.11.9, Flutter — до 3.47.9, Go для Android-ядра — до 1.26.11. Сборка умеет подписывать установщик Windows, если в репозитории настроен сертификат.
+
+English: the whole app can be backed up as one text to the clipboard or a file and restored elsewhere, optionally encrypted with AES-256; a wrong password or a damaged or incomplete copy changes nothing. Server lists of eight or more get search, and favourites stay at the top of their group across subscription refreshes. Ad blocking is now a per-server choice, with a whole-subscription action and automatic migration of the old global switch. Servers pointing at localhost or this device itself are marked at import and in the list, while repeated Reality and local-address failures get plain-language explanations. With Russian sites routed directly, Google and YouTube names at Russian cache addresses go through the VPN. Xray-core is 26.11.9, Flutter 3.47.9 and the Android core's Go 1.26.11; the workflow can sign the Windows installer when a certificate is configured.
+
 ## 1.0.18
 
 - Серверы с транспортом h2 из JSON-подписки больше не импортируются «успешно» без своих настроек: раньше адрес хоста и путь терялись, и такой сервер молча не подключался. Настройки ранних данных WebSocket из JSON-конфигов тоже больше не теряются.

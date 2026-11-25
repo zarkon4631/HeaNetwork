@@ -588,7 +588,6 @@ class RoutingSettings {
     List<AppRule>? apps,
     List<DomainRule>? domains,
     this.ruDirect = false,
-    this.blockAds = false,
     this.usePanelRouting = true,
     this.imported,
     this.seed = 0,
@@ -606,7 +605,6 @@ class RoutingSettings {
 
   /// Russian sites and addresses bypass the VPN.
   bool ruDirect;
-  bool blockAds;
 
   /// Apply the routing profile the subscription server sends (or one that
   /// was imported from a link) on top of the rules above.
@@ -677,7 +675,6 @@ class RoutingSettings {
         'apps': apps.map((e) => e.toJson()).toList(),
         'domains': domains.map((e) => e.toJson()).toList(),
         'ruDirect': ruDirect,
-        'blockAds': blockAds,
         'usePanelRouting': usePanelRouting,
         if (imported != null) 'imported': imported!.toJson(),
         'seed': seed,
@@ -692,7 +689,6 @@ class RoutingSettings {
             .map((e) => DomainRule.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
         ruDirect: j['ruDirect'] as bool? ?? false,
-        blockAds: j['blockAds'] as bool? ?? false,
         usePanelRouting: j['usePanelRouting'] as bool? ?? true,
         imported: j['imported'] is Map
             ? PanelRouting.fromProfile(Map<String, dynamic>.from(j['imported'] as Map))

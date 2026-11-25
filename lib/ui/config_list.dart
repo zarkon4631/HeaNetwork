@@ -63,6 +63,18 @@ void _reportImport(BuildContext context, ImportOutcome outcome) {
   final left = outcome.errors.isNotEmpty ? outcome.errors.length : outcome.unsupported.length;
   final skipped = left == 0 ? '' : ' · ${s.skipped(left)}';
   showSnack(context, '${s.imported(outcome.added)}$skipped');
+  _warnAboutThisDevice(context, outcome.thisDevice);
+}
+
+/// A server that points at this device itself comes from a link a panel
+/// made for itself, and connects to nothing: said right where it arrives.
+void _warnAboutThisDevice(BuildContext context, List<String> names) {
+  if (names.isEmpty) return;
+  final s = S.of(context);
+  unawaited(showNotice(context,
+      title: s.thisDeviceTitle,
+      body: s.thisDeviceWarning(names.join(', ')),
+      icon: Icons.devices_rounded));
 }
 
 Future<void> importText(BuildContext context, String text) async {
@@ -115,6 +127,10 @@ Future<void> _addSubscription(BuildContext context) async {
     final sub = await state.addSubscription(url);
     if (context.mounted) {
       showSnack(context, s.imported(state.profilesOf(sub.id).length));
+      _warnAboutThisDevice(context, [
+        for (final p in state.profilesOf(sub.id))
+          if (p.isThisDevice) p.name,
+      ]);
     }
   } on Object catch (e) {
     if (context.mounted) showSnack(context, describeSubscriptionError(s, e));
@@ -279,6 +295,11 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
       _lastResult = outcome.failure != null
           ? describeSubscriptionError(s, outcome.failure!)
           : (outcome.added > 0 ? s.imported(outcome.added) : s.nothingImported);
+      // The dialog stays up; the warning has its place in its own line.
+      if (outcome.thisDevice.isNotEmpty) {
+        _lastResult =
+            '$_lastResult\n${s.thisDeviceWarning(outcome.thisDevice.join(', '))}';
+      }
     });
   }
 
@@ -380,18 +401,70 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
   }
 }
 
+/// Whether [profile] is found by the list's search: in its name, its
+/// address, or what the panel says about it. [query] is already trimmed and
+/// lower-case; an empty one finds everything.
+bool serverMatches(ProxyProfile profile, String query) => query.isEmpty ||
+    [profile.name, profile.server, ?profile.description, profile.summary]
+        .any((field) => field.toLowerCase().contains(query));
+
+/// A menu entry with a tick at its far end when [on] is the case. The tick
+/// sits there, and not in front of the text, so it lines up with the plain
+/// entries of the same menu.
+PopupMenuItem<String> _tickedItem(String value, String label, bool on, ColorScheme scheme) =>
+    PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Flexible(child: Text(label)),
+          const SizedBox(width: 24),
+          SizedBox(
+            width: 18,
+            child: on ? Icon(Icons.check_rounded, size: 18, color: scheme.primary) : null,
+          ),
+        ],
+      ),
+    );
+
 /// Every configuration the user has, grouped by subscription, with the
 /// actions that apply to all of them in the header.
-class ConfigList extends StatelessWidget {
+class ConfigList extends StatefulWidget {
   const ConfigList({super.key});
+
+  /// From this many servers on, the list has a search field. Fewer are
+  /// looked through faster than typed.
+  static const searchThreshold = 8;
+
+  @override
+  State<ConfigList> createState() => _ConfigListState();
+}
+
+class _ConfigListState extends State<ConfigList> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final s = S.of(context);
     final theme = Theme.of(context);
-    final own = state.profilesOf(null);
+    final query = _search.text.trim().toLowerCase();
+    final searching = query.isNotEmpty;
+    bool shown(ProxyProfile p) => serverMatches(p, query);
+    final own = state.profilesOf(null).where(shown).toList();
     final empty = state.profiles.isEmpty && state.subscriptions.isEmpty;
+    final subs = [
+      for (final sub in state.subscriptions)
+        (sub, servers: state.profilesOf(sub.id).where(shown).toList()),
+    ].where((e) => !searching || e.servers.isNotEmpty).toList();
+    // While searching, a group is not there to match nothing and is left
+    // out altogether; so an empty list means nothing was found anywhere.
+    final nothingFound = searching && own.isEmpty && subs.isEmpty;
 
     Future<void> refreshAll() async {
       if (state.subscriptions.isEmpty) {
@@ -454,6 +527,28 @@ class ConfigList extends StatelessWidget {
             ),
           );
         }),
+        if (!empty && state.profiles.length >= ConfigList.searchThreshold)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: TextField(
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              style: theme.textTheme.bodyMedium,
+              decoration: InputDecoration(
+                isDense: true,
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                hintText: s.searchServers,
+                suffixIcon: searching
+                    ? IconButton(
+                        tooltip: s.clear,
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () => setState(_search.clear),
+                      )
+                    : null,
+              ),
+            ),
+          ),
         if (empty)
           const _EmptyConfigs()
         else ...[
@@ -461,13 +556,31 @@ class ConfigList extends StatelessWidget {
             Section(
               title: s.myServers,
               count: own.length,
-              collapsed: state.settings.ownServersCollapsed,
+              // A search unfolds: what it finds is meant to be seen.
+              collapsed: searching ? false : state.settings.ownServersCollapsed,
               onToggle: () => state.toggleCollapsed(null),
               collapsedSummary: _SelectedSummary.of(state, own),
               animate: state.settings.animations,
               children: [for (final p in own) _ServerTile(profile: p)],
             ),
-          for (final sub in state.subscriptions) _SubscriptionSection(sub: sub),
+          for (final (sub, servers: servers) in subs)
+            _SubscriptionSection(sub: sub, servers: servers, searching: searching),
+          if (nothingFound)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(s.searchNothing, textAlign: TextAlign.center),
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                        onPressed: () => setState(_search.clear),
+                        child: Text(s.searchReset)),
+                  ],
+                ),
+              ),
+            ),
         ],
       ],
     );
@@ -533,8 +646,16 @@ class _EmptyConfigs extends StatelessWidget {
 }
 
 class _SubscriptionSection extends StatelessWidget {
-  const _SubscriptionSection({required this.sub});
+  const _SubscriptionSection(
+      {required this.sub, required this.servers, required this.searching});
   final Subscription sub;
+
+  /// The servers of [sub] the list shows now: all of them, or those the
+  /// search found.
+  final List<ProxyProfile> servers;
+
+  /// A search unfolds the group: what it found is meant to be seen.
+  final bool searching;
 
   String _info(S s) {
     final parts = <String>[
@@ -554,7 +675,10 @@ class _SubscriptionSection extends StatelessWidget {
     final state = context.watch<AppState>();
     final s = S.of(context);
     final theme = Theme.of(context);
-    final servers = state.profilesOf(sub.id);
+    final scheme = theme.colorScheme;
+    // Blocking ads for the whole subscription at once: what a switch for
+    // every server used to be.
+    final adsOn = servers.isNotEmpty && servers.every((p) => p.blockAds);
 
     Future<void> refresh() async {
       try {
@@ -571,7 +695,7 @@ class _SubscriptionSection extends StatelessWidget {
       title: sub.name,
       subtitle: _info(s),
       count: servers.length,
-      collapsed: sub.collapsed,
+      collapsed: searching ? false : sub.collapsed,
       onToggle: () => state.toggleCollapsed(sub),
       collapsedSummary: _SelectedSummary.of(state, servers),
       animate: state.settings.animations,
@@ -583,6 +707,8 @@ class _SubscriptionSection extends StatelessWidget {
           PopupMenuButton<String>(
             onSelected: (v) async {
               switch (v) {
+                case 'ads':
+                  state.setBlockAds(state.profilesOf(sub.id), !adsOn);
                 case 'rename':
                   final name = await promptText(context,
                       title: s.rename, initial: sub.name, label: s.name);
@@ -600,6 +726,7 @@ class _SubscriptionSection extends StatelessWidget {
               }
             },
             itemBuilder: (_) => [
+              _tickedItem('ads', s.blockAdsAll, adsOn, scheme),
               PopupMenuItem(value: 'rename', child: Text(s.rename)),
               PopupMenuItem(value: 'copy', child: Text(s.copy)),
               if (sub.supportUrl != null)
@@ -703,6 +830,9 @@ class _SelectableRow extends StatelessWidget {
     this.leading,
     this.trailing,
     this.backdrop,
+    this.mark,
+    this.markTip,
+    this.alert = false,
   });
 
   final bool selected;
@@ -714,6 +844,14 @@ class _SelectableRow extends StatelessWidget {
 
   /// Painted behind the far end of the row (the server's flag).
   final Widget? backdrop;
+
+  /// A small icon before the title that says something about the row: a
+  /// star for a favourite server.
+  final IconData? mark;
+  final String? markTip;
+
+  /// The subtitle is something to take note of, and is shown as a warning.
+  final bool alert;
 
   /// How much of the row's end the [backdrop] covers.
   static const backdropWidth = 170.0;
@@ -742,16 +880,33 @@ class _SelectableRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: selected ? FontWeight.w600 : FontWeight.w500)),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (mark != null) ...[
+                          Tooltip(
+                            message: markTip ?? '',
+                            child: Icon(mark, size: 14, color: scheme.primary),
+                          ),
+                          const SizedBox(width: 5),
+                        ],
+                        Flexible(
+                          child: Text(title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight:
+                                      selected ? FontWeight.w600 : FontWeight.w500)),
+                        ),
+                      ],
+                    ),
                     Text(subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: alert ? scheme.error : scheme.onSurfaceVariant)),
                   ],
                 ),
               ),
@@ -799,17 +954,29 @@ class _ServerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final s = S.of(context);
+    final scheme = Theme.of(context).colorScheme;
     // A country named in the server's name gives the row its flag.
     final label = ServerLabel.of(profile.name);
     final country = label.country;
+    final thisDevice = profile.isThisDevice;
 
     return _SelectableRow(
       selected: state.selectedProfile?.id == profile.id,
       onTap: () => state.selectProfile(profile.id),
       leading: country == null ? null : FlagChip(country),
       backdrop: country == null ? null : FlagBackdrop(country),
+      mark: profile.favorite ? Icons.star_rounded : null,
+      markTip: s.favourited,
       title: label.title,
-      subtitle: [?profile.description, profile.summary, profile.server].join(' · '),
+      subtitle: [
+        ?profile.description,
+        profile.summary,
+        profile.server,
+        // Said here as well as at import: such a server works only with
+        // another proxy running on this device.
+        if (thisDevice) s.thisDeviceMark,
+      ].join(' · '),
+      alert: thisDevice,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -826,6 +993,10 @@ class _ServerTile extends StatelessWidget {
               switch (v) {
                 case 'test':
                   await state.testLatency([profile]);
+                case 'favourite':
+                  state.toggleFavorite(profile);
+                case 'ads':
+                  state.setBlockAds([profile], !profile.blockAds);
                 case 'share':
                   await showDialog<void>(
                       context: context, builder: (_) => _ShareDialog(profile: profile));
@@ -843,6 +1014,10 @@ class _ServerTile extends StatelessWidget {
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'test', child: Text(s.measure)),
+              PopupMenuItem(
+                  value: 'favourite',
+                  child: Text(profile.favorite ? s.unfavourite : s.favourite)),
+              _tickedItem('ads', s.blockAds, profile.blockAds, scheme),
               PopupMenuItem(value: 'share', child: Text(s.share)),
               PopupMenuItem(value: 'rename', child: Text(s.rename)),
               PopupMenuItem(value: 'json', child: Text(s.editJson)),

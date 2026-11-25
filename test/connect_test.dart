@@ -341,6 +341,36 @@ void main() {
       await state.disconnect();
     });
 
+    test('blocking ads is the server\'s own choice, and on the server in use it asks for it',
+        () async {
+      final state = makeState();
+      // The ad list is on this device; the rule is only made where it is.
+      state.ruleSets = {'geosite-category-ads-all'};
+      final inUse = state.selectedProfile!;
+      final other = state.profiles.last;
+      bool blocksAds(ProxyProfile p) {
+        final rules = (state.configFor(p, clashPort: 1, clashSecret: 's')['route'] as Map)['rules'];
+        return (rules as List).any((r) =>
+            r is Map &&
+            r['action'] == 'reject' &&
+            (r['rule_set'] as List?)?.contains('geosite-category-ads-all') == true);
+      }
+      await state.connect();
+      expect(blocksAds(inUse), isFalse);
+
+      // Another server: its choice, and nobody else's.
+      state.setBlockAds([other], true);
+      expect(blocksAds(other), isTrue);
+      expect(blocksAds(inUse), isFalse);
+      expect(state.pendingRestart, isFalse);
+
+      // The one in use: what the core runs on changes.
+      state.setBlockAds([inUse], true);
+      expect(blocksAds(inUse), isTrue);
+      expect(state.pendingRestart, isTrue);
+      await state.disconnect();
+    });
+
     test('deleting the server in use asks for it, deleting another does not', () async {
       final state = makeState();
       await state.connect();
@@ -400,6 +430,48 @@ void main() {
     expect(t.vpn, 4150);
     expect(t.direct, 70);
     expect(seen.keys, unorderedEquals(['a', 'c']));
+  });
+
+  group('replies that do not prove to come from the server', () {
+    test('are counted for the connection, and said from the third on', () async {
+      final core = FakeCore();
+      final state = makeState(core: core);
+      await state.init();
+      await pumpEventQueue();
+      await state.connect();
+      expect(state.realitySuspected, isFalse);
+
+      void fails() => core.log(
+          'ERROR [1] outbound/vless[proxy]: process connection: reality verification failed');
+      fails();
+      fails();
+      await pumpEventQueue();
+      expect(state.realityFailures, 2);
+      expect(state.realitySuspected, isFalse, reason: 'two can be strays');
+
+      fails();
+      await pumpEventQueue();
+      expect(state.realitySuspected, isTrue);
+      // The home screen is not redrawn for every connection that fails.
+      var told = 0;
+      state.addListener(() => told++);
+      for (var i = 0; i < 5; i++) {
+        fails();
+      }
+      await pumpEventQueue();
+      expect(state.realityFailures, 8);
+      expect(told, 0);
+
+      // Another kind of failure is not one of these.
+      core.log('ERROR [1] outbound/vless[proxy]: dial tcp 1.2.3.4:443: i/o timeout');
+      await pumpEventQueue();
+      expect(state.realityFailures, 8);
+
+      // The next connection starts clean.
+      await state.disconnect();
+      expect(state.realityFailures, 0);
+      expect(state.realitySuspected, isFalse);
+    });
   });
 
   group('starting as administrator', () {

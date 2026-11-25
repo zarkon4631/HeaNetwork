@@ -244,14 +244,18 @@ void main() {
   test('the log of a run is kept on disk, and the run before it too', () async {
     await core.start(minimalConfig(await freeTcpPort()));
     await core.stop();
-    await settle(() => core.logFile.existsSync() && core.logFile.lengthSync() > 0);
+    // Waiting for the line the assertions read, not just for the file to
+    // hold anything at all: under load the sink may have flushed only part.
+    await settle(() =>
+        core.logFile.existsSync() && core.logFile.readAsStringSync().contains('sing-box started'));
     final first = core.logFile.readAsStringSync();
     expect(first, contains('sing-box started'));
 
     final port = await freeTcpPort();
     await core.start(minimalConfig(port));
     await core.stop();
-    await settle(() => core.logFile.existsSync() && core.logFile.lengthSync() > 0);
+    await settle(() =>
+        core.logFile.existsSync() && core.logFile.readAsStringSync().contains('127.0.0.1:$port'));
     expect(core.previousLogFile.readAsStringSync(), first);
     expect(core.logFile.readAsStringSync(), contains('127.0.0.1:$port'));
   });

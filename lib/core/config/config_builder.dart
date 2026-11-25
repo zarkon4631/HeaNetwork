@@ -67,6 +67,12 @@ const tagDnsFake = 'dns-fake';
 const ruleSetRuSite = 'geosite-category-ru';
 const ruleSetRuIp = 'geoip-ru';
 const ruleSetAds = 'geosite-category-ads-all';
+const ruleSetGoogle = 'geosite-google';
+const ruleSetYoutube = 'geosite-youtube';
+
+/// Google keeps caches inside Russian networks, so by address they look
+/// like Russian sites. Sent directly, they are behind the Russian blocks.
+const googleRuleSets = [ruleSetGoogle, ruleSetYoutube];
 
 /// Zones that are Russian by definition; the rule-sets cover the rest.
 const ruDomainSuffixes = ['.ru', '.su', '.xn--p1ai', '.moscow', '.tatar'];
@@ -386,7 +392,7 @@ class _Plan {
     });
   }
 
-  late final bool blockAds = routing.blockAds && have(ruleSetAds);
+  late final bool blockAds = profile.blockAds && have(ruleSetAds);
 
   // ---- where a rule sends traffic ---------------------------------------
 
@@ -529,6 +535,24 @@ class _Plan {
     if (routing.ruDirect) {
       final ruSets = [ruleSetRuSite, ruleSetRuIp].where(have).toList();
       ruSets.forEach(useRuleSet);
+      final googleSets = googleRuleSets.where(have).toList();
+      if (ruSets.contains(ruleSetRuIp) && googleSets.isNotEmpty) {
+        // A Google or YouTube name at a Russian address is a cache of
+        // theirs inside a Russian network, not a Russian site: it goes
+        // through the VPN, as it would have without the address list.
+        // Only that combination is touched; the same names anywhere else
+        // follow the rules as before.
+        googleSets.forEach(useRuleSet);
+        rules.add({
+          'type': 'logical',
+          'mode': 'and',
+          'rules': [
+            {'rule_set': googleSets},
+            {'rule_set': [ruleSetRuIp]},
+          ],
+          ...routeTo(RouteAction.proxy),
+        });
+      }
       rules.add({
         'domain_suffix': ruDomainSuffixes,
         if (ruSets.isNotEmpty) 'rule_set': ruSets,

@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # The release workflow overrides this with the pushed tag
 # (--build-name / --build-number), so the tag is the single source of truth.
-version: 1.0.18+18
+version: 1.0.19+19
 
 environment:
   sdk: ^3.13.5
@@ -19,6 +19,9 @@ dependencies:
   path_provider: ^2.1.6
   http: ^1.6.0
   crypto: ^3.0.7
+  # Backups: AES-GCM with a password-derived key. No native code, so tests
+  # run anywhere the rest of the app does.
+  cryptography: ^2.9.0
   ffi: ^2.2.0
   package_info_plus: ^10.2.2
   url_launcher: ^6.3.3

@@ -706,7 +706,9 @@ void main() {
       'outbounds': [
         {
           'protocol': 'freedom',
-          'settings': {'redirect': '127.0.0.1:${probe.port}'},
+          // A MASQUE server refuses private and loopback targets unless told
+          // (since Xray 26.11), as an XDRIVE one always has.
+          'settings': {'redirect': '127.0.0.1:${probe.port}', 'finalRules': [{'action': 'allow'}]},
         },
       ],
     }, xrayPath, tmp, serverLog);

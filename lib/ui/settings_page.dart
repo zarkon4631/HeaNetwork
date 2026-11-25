@@ -1,9 +1,14 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/models/settings.dart';
+import '../core/services/backup.dart';
 import '../core/services/diagnostics.dart';
 import '../core/services/updater.dart';
 import '../l10n/strings.dart';
@@ -262,6 +267,7 @@ class SettingsPage extends StatelessWidget {
             ],
           ),
           _UpdateSection(state: state),
+          _BackupSection(state: state),
           Section(
             title: s.secAbout,
             children: [
@@ -483,6 +489,269 @@ class _UpdateSection extends StatelessWidget {
           onChanged: (v) =>
               state.updateSettings((x) => x.checkUpdates = v, affectsCore: false),
         ),
+      ],
+    );
+  }
+}
+
+/// How making a copy ended: the copy went to the clipboard or into a file,
+/// or the file could not be written.
+enum _CopyMade { copied, saved, failed }
+
+/// The whole app as one text, and getting it back: see [AppStore.toBackup].
+class _BackupSection extends StatelessWidget {
+  const _BackupSection({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return Section(
+      title: s.secBackup,
+      subtitle: s.backupHint,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.archive_outlined),
+          title: Text(s.backupCreate),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _make(context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.settings_backup_restore_rounded),
+          title: Text(s.backupRestore),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _restore(context),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _make(BuildContext context) async {
+    final s = S.of(context);
+    final made = await showDialog<_CopyMade>(
+        context: context, builder: (_) => _BackupCreateDialog(state: state));
+    if (made == null || !context.mounted) return;
+    showSnack(context, switch (made) {
+      _CopyMade.copied => s.backupCopied,
+      _CopyMade.saved => s.backupSaved,
+      _CopyMade.failed => s.backupFileFailed,
+    });
+  }
+
+  Future<void> _restore(BuildContext context) async {
+    final s = S.of(context);
+    final picked = await showDialog<(String, String?)>(
+        context: context, builder: (_) => _BackupRestoreDialog());
+    if (picked == null || !context.mounted) return;
+    final (text, password) = picked;
+    if (!await confirm(context, s.backupRestoreQ, action: s.backupRestoreAction)) {
+      return;
+    }
+    if (!context.mounted) return;
+    final result = await state.restoreBackup(text, password: password);
+    if (!context.mounted) return;
+    showSnack(context, switch (result) {
+      BackupRestore.ok => s.backupRestored,
+      BackupRestore.badPassword => s.backupBadPassword,
+      BackupRestore.notABackup => s.backupNotABackup,
+    });
+  }
+}
+
+/// The password, if any, and where the copy goes: the clipboard, or a file.
+class _BackupCreateDialog extends StatefulWidget {
+  const _BackupCreateDialog({required this.state});
+  final AppState state;
+
+  @override
+  State<_BackupCreateDialog> createState() => _BackupCreateDialogState();
+}
+
+class _BackupCreateDialogState extends State<_BackupCreateDialog> {
+  final _password = TextEditingController();
+  var _busy = false;
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _make({required bool toFile}) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    // Sealing takes a moment (the password is turned into a key), so the
+    // buttons wait it out.
+    final plain = jsonEncode(widget.state.store.toBackup());
+    final password = _password.text;
+    final text = password.isEmpty ? plain : await encodeBackup(plain, password);
+    if (toFile) {
+      final name =
+          'HeaNetwork-backup-${DateTime.now().toIso8601String().substring(0, 10)}.txt';
+      final where = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [XTypeGroup(label: 'txt', extensions: ['txt'])]);
+      if (where == null) {
+        // Changed their mind: back to the dialog, nothing made.
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+      try {
+        await File(where.path).writeAsString(text);
+      } on Object {
+        if (mounted) Navigator.pop(context, _CopyMade.failed);
+        return;
+      }
+      if (mounted) Navigator.pop(context, _CopyMade.saved);
+    } else {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) Navigator.pop(context, _CopyMade.copied);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return AlertDialog(
+      title: Text(s.backupCreate),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(s.backupBody),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              autofocus: true,
+              decoration: InputDecoration(
+                  labelText: s.backupPassword, helperText: s.backupPasswordHint),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: _busy ? null : () => Navigator.pop(context),
+            child: Text(s.cancel)),
+        if (widget.state.isWindows)
+          TextButton(
+              onPressed: _busy ? null : () => _make(toFile: true),
+              child: Text(s.backupSaveFile)),
+        FilledButton(
+            onPressed: _busy ? null : () => _make(toFile: false),
+            child: _busy
+                ? const SizedBox.square(
+                    dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : Text(s.backupCopy)),
+      ],
+    );
+  }
+}
+
+/// The text of a copy, from the clipboard or a file, and its password.
+/// Returns the text and the password, or null when the user backed out.
+class _BackupRestoreDialog extends StatefulWidget {
+  const _BackupRestoreDialog();
+
+  @override
+  State<_BackupRestoreDialog> createState() => _BackupRestoreDialogState();
+}
+
+class _BackupRestoreDialogState extends State<_BackupRestoreDialog> {
+  final _text = TextEditingController();
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _text.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  bool get _sealed => isBackupEncrypted(_text.text);
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text == null) return;
+    setState(() => _text.text = data!.text!);
+  }
+
+  Future<void> _pick() async {
+    final file = await openFile(acceptedTypeGroups: const [
+      XTypeGroup(label: 'txt', extensions: ['txt']),
+      XTypeGroup(label: 'json', extensions: ['json']),
+      XTypeGroup(label: 'all'),
+    ]);
+    if (file == null) return;
+    final String text;
+    try {
+      text = await file.readAsString();
+    } on Object {
+      return;
+    }
+    if (mounted) setState(() => _text.text = text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final ready = _text.text.trim().isNotEmpty;
+    return AlertDialog(
+      title: Text(s.backupRestore),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _text,
+              maxLines: 6,
+              minLines: 3,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              decoration: InputDecoration(hintText: s.backupPasteHint),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                TextButton.icon(
+                    onPressed: _paste,
+                    icon: const Icon(Icons.content_paste_rounded, size: 18),
+                    label: Text(s.backupPaste)),
+                const SizedBox(width: 6),
+                TextButton.icon(
+                    onPressed: _pick,
+                    icon: const Icon(Icons.folder_open_rounded, size: 18),
+                    label: Text(s.backupChooseFile)),
+              ],
+            ),
+            // The password is asked for exactly when there is something to
+            // open with it.
+            if (_sealed) ...[
+              const SizedBox(height: 6),
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: InputDecoration(labelText: s.backupPassword),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
+        FilledButton(
+            onPressed: ready
+                ? () => Navigator.pop(
+                    context,
+                    (
+                      _text.text.trim(),
+                      _password.text.isEmpty ? null : _password.text,
+                    ))
+                : null,
+            child: Text(s.backupRestoreAction)),
       ],
     );
   }
@@ -762,6 +1031,17 @@ class _LogsPageState extends State<LogsPage> {
                     style: TextStyle(color: theme.colorScheme.onSurfaceVariant)));
           }
           // Newest first, so fresh lines appear without chasing the scroll.
+          // A hint is written out once, under the newest line that calls for
+          // it; under the others that do, only what it was about.
+          final explained = <LogHint>{};
+          String titleOf(LogHint hint) => switch (hint) {
+                LogHint.reality => s.realityTitle,
+                LogHint.thisDevice => s.thisDeviceTitle,
+              };
+          String bodyOf(LogHint hint) => switch (hint) {
+                LogHint.reality => s.realityHint,
+                LogHint.thisDevice => s.thisDeviceHint,
+              };
           return SelectionArea(
             child: ListView.builder(
               controller: _scroll,
@@ -770,15 +1050,45 @@ class _LogsPageState extends State<LogsPage> {
               itemBuilder: (context, i) {
                 final line = logs[logs.length - 1 - i];
                 final bad = line.contains('ERROR') || line.contains('FATAL');
-                return Text(
-                  line,
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    height: 1.35,
-                    color: bad
-                        ? theme.colorScheme.error
-                        : (line.contains('WARN') ? theme.colorScheme.tertiary : null),
+                final hint = logHintOf(line);
+                final again = hint != null && !explained.add(hint);
+                final mono = TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.35,
+                  color: bad
+                      ? theme.colorScheme.error
+                      : (line.contains('WARN') ? theme.colorScheme.tertiary : null),
+                );
+                if (hint == null) return Text(line, style: mono);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(line, style: mono),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3, left: 9),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.lightbulb_outline_rounded,
+                                size: 14,
+                                color: theme.colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                  again
+                                      ? titleOf(hint)
+                                      : '${titleOf(hint)}. ${bodyOf(hint)}',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: theme.colorScheme.onSurfaceVariant)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 );
               },

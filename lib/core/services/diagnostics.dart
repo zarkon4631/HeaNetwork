@@ -48,6 +48,35 @@ String scrubLogLine(String line) {
   return out;
 }
 
+/// What a line of the core's output means for the person reading it, where
+/// the core's own words say too little.
+enum LogHint {
+  /// The reply did not prove to come from the Reality server: someone else
+  /// answered. The core drops such a connection itself.
+  reality,
+
+  /// The server's address is this device itself, and nothing answered there.
+  thisDevice,
+}
+
+final _realityFailure = RegExp('reality verification failed');
+
+/// `dial tcp 127.0.0.1:443: …`, the address being any of the loopback ones.
+final _dialLoopback =
+    RegExp(r'dial tcp (?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[::1\]):\d+');
+
+/// The [LogHint] for [line], or null when its words are enough as they are.
+LogHint? logHintOf(String line) {
+  if (_realityFailure.hasMatch(line)) return LogHint.reality;
+  // "connection refused" on Linux and Android, "No connection could be
+  // made" on Windows: nothing listens on that port.
+  if (_dialLoopback.hasMatch(line) &&
+      (line.contains('refused') || line.contains('No connection could be made'))) {
+    return LogHint.thisDevice;
+  }
+  return null;
+}
+
 /// The report the diagnostics button copies: who the app is, how it runs,
 /// and the end of the log with secrets scrubbed.
 String diagnosticsReport({

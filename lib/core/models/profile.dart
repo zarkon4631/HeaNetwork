@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'panel_routing.dart';
@@ -60,6 +61,8 @@ class ProxyProfile {
     this.description,
     this.subscriptionId,
     this.latencyMs,
+    this.blockAds = false,
+    this.favorite = false,
   }) : id = id ?? newId();
 
   final String id;
@@ -75,6 +78,14 @@ class ProxyProfile {
 
   /// Last measured delay; null = never tested, -1 = failed.
   int? latencyMs;
+
+  /// Blocks advertising and tracking domains while connected through this
+  /// server. It belongs to the server rather than to the routing, because
+  /// what blocks ads on one line can get in the way on another.
+  bool blockAds;
+
+  /// Kept at the top of its group in the list.
+  bool favorite;
 
   bool get isEndpoint => outbound['type'] == 'wireguard';
 
@@ -114,6 +125,21 @@ class ProxyProfile {
       return 0;
     }
     return (outbound['server_port'] as num?)?.toInt() ?? 0;
+  }
+
+  /// True when the server's address names this device itself: `localhost`,
+  /// `127.0.0.1`, `0.0.0.0`, `::1`, `::`. It is what a panel writes into a
+  /// link it makes for itself, and from any other device such a link
+  /// reaches nothing.
+  bool get isThisDevice {
+    final host = server.trim().toLowerCase();
+    if (host.isEmpty) return false;
+    if (host == 'localhost' || host.endsWith('.localhost')) return true;
+    final address = InternetAddress.tryParse(host);
+    if (address == null) return false;
+    // `0.0.0.0` and `::`: "any address", which a connection takes as this
+    // device's own.
+    return address.isLoopback || address.rawAddress.every((b) => b == 0);
   }
 
   /// True when the handshake rides on UDP, where TLS fragmentation and a TCP
@@ -194,6 +220,8 @@ class ProxyProfile {
         if (description != null) 'description': description,
         if (subscriptionId != null) 'subscriptionId': subscriptionId,
         if (latencyMs != null) 'latencyMs': latencyMs,
+        if (blockAds) 'blockAds': true,
+        if (favorite) 'favorite': true,
       };
 
   factory ProxyProfile.fromJson(Map<String, dynamic> j) => ProxyProfile(
@@ -205,6 +233,8 @@ class ProxyProfile {
         description: j['description'] as String?,
         subscriptionId: j['subscriptionId'] as String?,
         latencyMs: (j['latencyMs'] as num?)?.toInt(),
+        blockAds: j['blockAds'] as bool? ?? false,
+        favorite: j['favorite'] as bool? ?? false,
       );
 }
 

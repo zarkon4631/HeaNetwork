@@ -4,10 +4,17 @@ import 'dart:convert';
 import '../core/models/panel_routing.dart';
 import '../core/models/profile.dart';
 import '../core/parsers/import_parser.dart';
+import '../core/services/backup.dart';
 import '../core/services/core_controller.dart';
 import '../core/services/public_ip.dart';
 import '../core/services/subscription_service.dart';
 import 'app_state_base.dart';
+
+/// The names of the [servers] that point at this device itself.
+List<String> _thisDeviceNames(Iterable<ProxyProfile> servers) => [
+      for (final p in servers)
+        if (p.isThisDevice) p.name,
+    ];
 
 /// The user's servers and the subscriptions they came from: importing,
 /// refreshing, keeping the selection sane.
@@ -34,7 +41,8 @@ mixin AppStateProfiles on AppStateBase {
         return ImportOutcome(
             added: profilesOf(sub.id).length,
             subscription: sub,
-            unsupported: sub.unsupported);
+            unsupported: sub.unsupported,
+            thisDevice: _thisDeviceNames(profilesOf(sub.id)));
       } on Object catch (e) {
         return ImportOutcome(failure: e);
       }
@@ -46,7 +54,8 @@ mixin AppStateProfiles on AppStateBase {
     return ImportOutcome(
         added: parsed.profiles.length,
         errors: parsed.errors,
-        unsupported: parsed.skipped);
+        unsupported: parsed.skipped,
+        thisDevice: _thisDeviceNames(parsed.profiles));
   }
 
   void addProfile(ProxyProfile p) {
@@ -54,8 +63,54 @@ mixin AppStateProfiles on AppStateBase {
     profilesChanged();
   }
 
+  /// Replaces everything with what the backup [text] holds — see
+  /// [AppStore.toBackup]. A copy made with a password needs that password.
+  Future<BackupRestore> restoreBackup(String text, {String? password}) async {
+    final sealed = isBackupEncrypted(text);
+    final backup = await decodeBackup(text, password: password);
+    if (backup == null) {
+      return sealed ? BackupRestore.badPassword : BackupRestore.notABackup;
+    }
+    if (!store.restoreFromBackup(backup)) return BackupRestore.notABackup;
+    await Future.wait([
+      store.saveSettings(),
+      store.saveRouting(),
+      store.saveProfiles(),
+      store.saveSubscriptions(),
+    ]);
+    // The selection may point at a server that is no longer there; a live
+    // connection now runs on what the copy holds or asks to be remade.
+    _reselectAfterRemoval();
+    if (status != CoreStatus.stopped) noteCoreChange();
+    configRevision++;
+    notifyListeners();
+    return BackupRestore.ok;
+  }
+
   void renameProfile(ProxyProfile p, String name) {
     p.name = name;
+    profilesChanged();
+  }
+
+  /// Blocks ads, or stops blocking them, on [servers]: one, or every server
+  /// of a subscription at once.
+  void setBlockAds(Iterable<ProxyProfile> servers, bool value) {
+    var changed = false;
+    for (final p in servers) {
+      if (p.blockAds != value) {
+        p.blockAds = value;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    // The rule goes into the core's configuration.
+    if (status != CoreStatus.stopped) noteCoreChange();
+    profilesChanged();
+  }
+
+  /// Puts a server at the top of its group, or back among the others.
+  void toggleFavorite(ProxyProfile p) {
+    p.favorite = !p.favorite;
     profilesChanged();
   }
 
@@ -186,6 +241,9 @@ mixin AppStateProfiles on AppStateBase {
         description: p.description,
         subscriptionId: sub.id,
         latencyMs: before?.latencyMs,
+        // What the user chose for this server stays chosen.
+        blockAds: before?.blockAds ?? false,
+        favorite: before?.favorite ?? false,
       ));
     }
 

@@ -8,22 +8,30 @@
   },
   "xray": {
     "repo": "XTLS/Xray-core",
-    "tag": "v26.10.21",
+    "tag": "v26.11.9",
     "asset": "Xray-windows-64.zip",
-    "sha256": "fc58c39ee2f2717b4c54d28d374362389e5319b20ae44aea76ea45a5243ec827"
+    "sha256": "1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d"
   },
   "rule_sets": {
     "geosite-category-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
-      "sha256": "ce60c3549b12cbb4b7577b98fc0812793b6e88664919ab70ffa2007b4617f5d4"
+      "sha256": "231ecccda3227ec721cceaa9346435a58cddcbcb9b824913613e3fc7e489acda"
     },
     "geoip-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
       "sha256": "55869c680cf6489991cbfdf62c2f5da77ea85bf571babddb6cd9c4941d84cbfa"
     },
+    "geosite-google": {
+      "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google.srs",
+      "sha256": "67de78f83e73f406b7afa9c043797954d0e3c00b906a05d86b406a35f38a72d7"
+    },
+    "geosite-youtube": {
+      "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
+      "sha256": "f83d78439f04b59796f51e16183be70b4e3af1bc8e38991791d90ac8940d0dfd"
+    },
     "geosite-category-ads-all": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-      "sha256": "5577fd713d8479b6df9bcfe5832eab9d6d4fd5a34ea5748460618ed30526cb0c"
+      "sha256": "5744f0691898c4b91d236f7f2dcb4dc0095149b80a6345a613c6fa28edcba7d1"
     }
   }
 }

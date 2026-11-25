@@ -22,6 +22,7 @@ import 'package:heanetwork/core/services/core_controller.dart';
 import 'package:heanetwork/core/services/updater.dart';
 import 'package:heanetwork/platform/windows/desktop_shell.dart';
 import 'package:heanetwork/state/app_state.dart';
+import 'package:heanetwork/ui/config_list.dart' show importText;
 import 'package:heanetwork/ui/home_page.dart';
 import 'package:heanetwork/ui/settings_page.dart';
 import 'package:heanetwork/ui/shell.dart';
@@ -431,6 +432,56 @@ void main() {
       expect(find.textContaining('dns: lookup'), findsOneWidget);
     }, variant: variant);
 
+    testWidgets('the log says what the core\'s line means, in a person\'s words',
+        (tester) async {
+      final state = makeState();
+      state.settings.locale = 'ru';
+      (state.core as FakeCore)
+        ..log('ERROR [1] outbound/vless[proxy]: process connection: reality verification failed')
+        ..log('ERROR [2] outbound/vless[proxy]: process connection: reality verification failed')
+        ..log('E/[3] outbound/vless[proxy]: dial tcp 127.0.0.1:443: connect: connection refused')
+        ..log('INFO sing-box started');
+      await pumpApp(tester, state, size: desktop, home: const LogsPage());
+      // Written out once, under the newest line that calls for it; under the
+      // next one, only what it was about.
+      expect(find.textContaining('Сервер не прошёл проверку Reality. На запрос ответил'),
+          findsOneWidget);
+      expect(find.text('Сервер не прошёл проверку Reality'), findsOneWidget);
+      expect(find.textContaining('Сервер указывает на само это устройство. На этом устройстве'),
+          findsOneWidget);
+      // The core's own words stay where they were.
+      expect(find.textContaining('reality verification failed'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
+    testWidgets('replies that keep failing the Reality check are said on the home screen',
+        (tester) async {
+      final state = makeState();
+      state.settings.locale = 'ru';
+      await pumpApp(tester, state, size: desktop);
+      await tester.runAsync(state.connect);
+      await tester.pump(const Duration(milliseconds: 600));
+      const title = 'Сервер не прошёл проверку Reality';
+      expect(find.text(title), findsNothing,
+          reason: 'not while nothing of the kind happened');
+
+      state.realityFailures = 2;
+      state.updateSettings((_) {}, affectsCore: false);
+      await tester.pump();
+      expect(find.text(title), findsNothing, reason: 'two can be strays');
+
+      state.realityFailures = 3;
+      state.updateSettings((_) {}, affectsCore: false);
+      await tester.pump();
+      expect(find.text(title), findsOneWidget);
+      expect(find.textContaining('3 соединения'), findsOneWidget);
+
+      await state.disconnect();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text(title), findsNothing);
+      expect(tester.takeException(), isNull);
+    }, variant: variant);
+
     testWidgets('a connection made without the routing rules says so', (tester) async {
       final state = makeState();
       state.settings.locale = 'ru';
@@ -458,6 +509,182 @@ void main() {
       expect(find.textContaining('Для мобильной сети · VLESS'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }, variant: variant);
+
+    group('the list of servers', () {
+      /// Opens the menu on the row of the server called [name].
+      Future<void> menuOf(WidgetTester tester, String name) async {
+        await tester.ensureVisible(find.text(name));
+        await tester.pump(const Duration(milliseconds: 300));
+        final row =
+            find.ancestor(of: find.text(name), matching: find.byType(InkWell)).first;
+        await tester.tap(find.descendant(of: row, matching: find.byIcon(Icons.more_vert)));
+        await tester.pumpAndSettle();
+      }
+
+      /// Opens the menu on the header of the group called [name].
+      Future<void> headerMenu(WidgetTester tester, String name) async {
+        await tester.ensureVisible(find.text(name));
+        await tester.pump(const Duration(milliseconds: 300));
+        final header =
+            find.ancestor(of: find.text(name), matching: find.byType(InkWell));
+        await tester.tap(
+            find.descendant(of: header.first, matching: find.byIcon(Icons.more_vert)));
+        await tester.pumpAndSettle();
+      }
+
+      /// Whether the entry [label] of the open menu has its tick on.
+      bool ticked(String label) => find
+          .descendant(
+              of: find.ancestor(of: find.text(label), matching: find.byType(Row)).first,
+              matching: find.byIcon(Icons.check_rounded))
+          .evaluate()
+          .isNotEmpty;
+
+      testWidgets('a long list is searched; a short one has nothing to search for',
+          (tester) async {
+        final state = makeState();
+        state.settings.locale = 'ru';
+        await pumpApp(tester, state, size: desktop);
+        // Seven servers: looked through faster than typed.
+        expect(find.text('Поиск сервера'), findsNothing);
+
+        // From the eighth on there is a search field. The new ones go into
+        // a group that is folded.
+        final sub = state.subscriptions.single..collapsed = true;
+        for (var i = 0; i < 5; i++) {
+          final copy = {...state.profiles.last.toJson()}..remove('id');
+          state.addProfile(ProxyProfile.fromJson(copy)
+            ..name = 'Запасной $i'
+            ..subscriptionId = sub.id);
+        }
+        await tester.pump();
+        expect(find.text('Поиск сервера'), findsOneWidget);
+        expect(find.text('Запасной 4'), findsNothing, reason: 'the group is folded');
+
+        final field = find.byType(TextField);
+        await tester.enterText(field, 'запас');
+        await tester.pump(const Duration(milliseconds: 300));
+        // What the search finds is shown, whatever the group.
+        expect(find.text('Запасной 0'), findsOneWidget);
+        expect(find.text('Запасной 4'), findsOneWidget);
+        expect(find.text('США · Trojan'), findsNothing);
+        expect(find.text('Мои серверы'), findsNothing,
+            reason: 'a group where nothing matches is left out');
+        expect(state.subscriptions.single.collapsed, isTrue, reason: 'only unfolded to look');
+
+        // By what the panel says of a server too.
+        final own = state.profilesOf(null).last..description = 'Только для телефона';
+        state.profilesChanged();
+        await tester.enterText(field, 'телефона');
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text(own.name), findsOneWidget);
+        expect(find.text('Запасной 0'), findsNothing);
+        expect(find.text('Домашний AmneziaWG'), findsNothing);
+
+        // Nothing at all is said to be nothing, and the search is undone.
+        await tester.enterText(field, 'несуществующий');
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('По этому запросу серверов нет'), findsOneWidget);
+        await tester.tap(find.text('Сбросить поиск'));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('Домашний AmneziaWG'), findsOneWidget);
+        expect(find.text('США · Trojan'), findsNothing, reason: 'the group is folded again');
+        expect(tester.takeException(), isNull);
+      }, variant: variant);
+
+      testWidgets('a server is kept at the top of its group as a favourite', (tester) async {
+        final state = makeState();
+        state.settings.locale = 'ru';
+        await pumpApp(tester, state, size: desktop);
+        final sub = state.subscriptions.single;
+        final server = state.profilesOf(sub.id).last;
+        expect(find.byIcon(Icons.star_rounded), findsNothing);
+
+        await menuOf(tester, server.name);
+        expect(find.text('В избранное'), findsOneWidget);
+        await tester.tap(find.text('В избранное'));
+        await tester.pumpAndSettle();
+        expect(state.profilesOf(sub.id).first.name, server.name);
+        expect(find.byIcon(Icons.star_rounded), findsOneWidget);
+
+        // And off the same way.
+        await menuOf(tester, server.name);
+        expect(find.text('Убрать из избранного'), findsOneWidget);
+        await tester.tap(find.text('Убрать из избранного'));
+        await tester.pumpAndSettle();
+        expect(state.profilesOf(sub.id).last.name, server.name);
+        expect(find.byIcon(Icons.star_rounded), findsNothing);
+        expect(tester.takeException(), isNull);
+      }, variant: variant);
+
+      testWidgets('ads are blocked for one server, or for a subscription at once',
+          (tester) async {
+        final state = makeState();
+        state.settings.locale = 'ru';
+        await pumpApp(tester, state, size: desktop);
+        final sub = state.subscriptions.single;
+        final server = state.profilesOf(sub.id).last;
+
+        await menuOf(tester, server.name);
+        expect(ticked('Блокировать рекламу'), isFalse, reason: 'nothing is blocked yet');
+        await tester.tap(find.text('Блокировать рекламу'));
+        await tester.pumpAndSettle();
+        expect(state.profilesOf(sub.id).where((p) => p.blockAds).map((p) => p.name),
+            [server.name]);
+
+        // The entry of that server now says so.
+        await menuOf(tester, server.name);
+        expect(ticked('Блокировать рекламу'), isTrue);
+        await tester.tapAt(const Offset(5, 5));
+        await tester.pumpAndSettle();
+
+        // The subscription's own menu: every server of it at once.
+        await headerMenu(tester, 'Hea Premium');
+        const every = 'Блокировать рекламу на всех серверах';
+        expect(ticked(every), isFalse, reason: 'one of five');
+        await tester.tap(find.text(every));
+        await tester.pumpAndSettle();
+        expect(state.profilesOf(sub.id).every((p) => p.blockAds), isTrue);
+        expect(state.profilesOf(null).any((p) => p.blockAds), isFalse,
+            reason: 'and nobody else\'s');
+
+        // Ticked, it turns them all off.
+        await headerMenu(tester, 'Hea Premium');
+        expect(ticked(every), isTrue);
+        await tester.tap(find.text(every));
+        await tester.pumpAndSettle();
+        expect(state.profilesOf(sub.id).any((p) => p.blockAds), isFalse);
+        expect(tester.takeException(), isNull);
+      }, variant: variant);
+
+      testWidgets('a server that is this device itself says so, in the list and as it arrives',
+          (tester) async {
+        final state = makeState();
+        state.settings.locale = 'ru';
+        state.profiles.first.outbound['server'] = 'localhost';
+        await pumpApp(tester, state, size: desktop);
+        expect(find.textContaining('адрес самого устройства'), findsOneWidget);
+
+        // As it arrives, in a dialog that does not go away by itself.
+        await importText(
+            tester.element(find.byType(HomePage)),
+            'vless://11111111-2222-4333-8444-555555555555@127.0.0.1:443?security=none#panel');
+        await tester.pump();
+        expect(find.text('Сервер указывает на само это устройство'), findsOneWidget);
+        expect(find.textContaining('«panel»'), findsOneWidget);
+        await tester.tap(find.text('Понятно'));
+        await tester.pumpAndSettle();
+        expect(find.text('Сервер указывает на само это устройство'), findsNothing);
+
+        // A server anywhere else is imported without a word about it.
+        await importText(
+            tester.element(find.byType(HomePage)),
+            'vless://11111111-2222-4333-8444-555555555555@203.0.113.9:443?security=none#far');
+        await tester.pump();
+        expect(find.text('Сервер указывает на само это устройство'), findsNothing);
+        expect(state.profiles.last.name, 'far');
+      }, variant: variant);
+    });
 
     testWidgets('the mode switch flips between system proxy and VPN', (tester) async {
       final state = makeState();

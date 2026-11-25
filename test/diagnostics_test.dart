@@ -4,6 +4,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:heanetwork/core/services/diagnostics.dart';
 
 void main() {
+  group('a line that needs saying in a person\'s words', () {
+    test('is known by what it says', () {
+      expect(
+          logHintOf('ERROR [4074224469] outbound/vless[proxy]: process connection from '
+              '1.2.3.4:5: reality verification failed'),
+          LogHint.reality);
+      // Windows and Linux each have their own words for a closed port.
+      expect(
+          logHintOf('ERROR [1] outbound/vless[proxy]: dial tcp 127.0.0.1:443: connectex: '
+              'No connection could be made because the target machine actively refused it.'),
+          LogHint.thisDevice);
+      expect(
+          logHintOf(
+              'E/[1] outbound/vless[proxy]: dial tcp [::1]:443: connect: connection refused'),
+          LogHint.thisDevice);
+    });
+
+    test('and an ordinary line is left alone', () {
+      for (final line in [
+        'INFO sing-box started',
+        'ERROR [1] outbound/vless[proxy]: dial tcp 1.2.3.4:443: i/o timeout',
+        // Answered, only not with what was asked for.
+        'ERROR [1] inbound/mixed[mixed-in]: dial tcp 127.0.0.1:8080: http: error',
+        'WARN [1] outbound/vless[proxy]: connection reset by peer',
+      ]) {
+        expect(logHintOf(line), isNull, reason: line);
+      }
+    });
+  });
+
   test('the header tells the app, platform, mode and status', () {
     final r = diagnosticsReport(
       appVersion: '1.0.15',

@@ -229,6 +229,65 @@ void main() {
       expect(direct.containsKey('ip_cidr'), isFalse);
     });
 
+    test('Google and YouTube names at Russian addresses go through the VPN', () {
+      final config = configWith(null,
+          routing: RoutingSettings()..ruDirect = true,
+          ruleSets: {...bundled, ...googleRuleSets});
+      final rules = routeRules(config);
+      final fix = rules.indexWhere((r) => r['mode'] == 'and');
+      final ru = rules.indexWhere(
+          (r) => r['outbound'] == tagDirect && has(r, 'rule_set', 'geoip-ru'));
+      expect(fix, greaterThan(0));
+      expect(ru, fix + 1, reason: 'right before the rule it is the exception to');
+      expect(rules[fix]['outbound'], tagProxy);
+      final inner = (rules[fix]['rules'] as List).cast<Map<String, dynamic>>();
+      expect(inner, [
+        {'rule_set': ['geosite-google', 'geosite-youtube']},
+        {'rule_set': ['geoip-ru']},
+      ]);
+      // The lists the exception goes by are declared for the core.
+      final declared =
+          ((config['route'] as Map)['rule_set'] as List).cast<Map<String, dynamic>>();
+      expect([for (final r in declared) r['tag']],
+          containsAll(['geosite-google', 'geosite-youtube']));
+    });
+
+    test('the exception is made only where the lists can tell a Google cache from a Russian site',
+        () {
+      List<Map<String, dynamic>> fixes(RoutingSettings routing, Set<String> lists) =>
+          routeRules(configWith(null, routing: routing, ruleSets: lists))
+              .where((r) => r['mode'] == 'and')
+              .toList();
+      final all = {...bundled, ...googleRuleSets};
+      final ru = RoutingSettings()..ruDirect = true;
+      // Russian sites do not go directly: nothing to be an exception to.
+      expect(fixes(RoutingSettings(), all), isEmpty);
+      // No lists of Google names: nothing to make an exception for.
+      expect(fixes(ru, bundled), isEmpty);
+      // No list of Russian addresses: the site list alone does not hold them.
+      expect(fixes(ru, {...all}..remove('geoip-ru')), isEmpty);
+      // One list of the two is enough, and it is the one there is.
+      final one = fixes(ru, {...bundled, 'geosite-youtube'});
+      expect(((one.single['rules'] as List).first as Map)['rule_set'], ['geosite-youtube']);
+    });
+
+    test('the real core accepts the Google exception', () async {
+      if (!File(corePath).existsSync() ||
+          !File('$ruleSetDir/geosite-youtube.srs').existsSync()) {
+        markTestSkipped('core or rule-sets not found');
+        return;
+      }
+      final tmp = Directory.systemTemp.createTempSync('hea_route_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final config = configWith(null,
+          routing: RoutingSettings()..ruDirect = true,
+          ruleSets: {...bundled, ...googleRuleSets},
+          cache: tmp.path.replaceAll('\\', '/'));
+      final file = File('${tmp.path}\\c.json')..writeAsStringSync(jsonEncode(config));
+      final r = await Process.run(corePath, ['check', '-c', file.path, '-D', tmp.path]);
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+    }, testOn: 'windows');
+
     test('the real core accepts a config with a panel profile', () async {
       // Needs the core and the bundled lists; tool/fetch_assets.ps1 gets both.
       if (!File(corePath).existsSync() ||

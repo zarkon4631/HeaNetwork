@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -45,7 +46,10 @@ class AppStore {
   /// version wrote (another version did, or somebody's editor), so a record
   /// that cannot be read is left out rather than allowed to cost the rest,
   /// let alone the start of the app.
-  static List<T> _records<T>(Object? json, T Function(Map<String, dynamic>) parse) {
+  static List<T> _records<T>(
+    Object? json,
+    T Function(Map<String, dynamic>) parse,
+  ) {
     final out = <T>[];
     if (json is! List) return out;
     for (final e in json) {
@@ -61,7 +65,11 @@ class AppStore {
 
   /// One object on disk, or null when the file holds something of another
   /// shape; it is then set aside like a torn one and the defaults apply.
-  Future<T?> _object<T>(String name, Object? json, T Function(Map<String, dynamic>) parse) async {
+  Future<T?> _object<T>(
+    String name,
+    Object? json,
+    T Function(Map<String, dynamic>) parse,
+  ) async {
     if (json is! Map) return null;
     try {
       return parse(Map<String, dynamic>.from(json));
@@ -102,7 +110,10 @@ class AppStore {
 
   Future<void> load() async {
     profiles = _records(await _read('profiles.json'), ProxyProfile.fromJson);
-    subscriptions = _records(await _read('subscriptions.json'), Subscription.fromJson);
+    subscriptions = _records(
+      await _read('subscriptions.json'),
+      Subscription.fromJson,
+    );
     final st = await _read('settings.json');
     final stored = await _object('settings.json', st, AppSettings.fromJson);
     if (st is Map && stored != null) {
@@ -123,18 +134,77 @@ class AppStore {
         if (best != null) settings.selectedProfileId = best.id;
       }
     }
-    routing = await _object(
-            'routing.json', await _read('routing.json'), RoutingSettings.fromJson) ??
-        routing;
+    final rt = await _read('routing.json');
+    routing =
+        await _object('routing.json', rt, RoutingSettings.fromJson) ?? routing;
+    // Up to 1.0.18 blocking ads was one switch for every server. It is each
+    // server's own now; a switch that was on covers all the servers there
+    // are. Both files are written back at once, so the old key is gone
+    // before anything could read it as a switch again.
+    if (rt is Map && rt['blockAds'] == true) {
+      for (final p in profiles) {
+        p.blockAds = true;
+      }
+      unawaited(Future.wait([saveRouting(), saveProfiles()]));
+    }
   }
 
   Future<void> saveProfiles() =>
       _write('profiles.json', () => profiles.map((e) => e.toJson()).toList());
   Future<void> saveSubscriptions() => _write(
-      'subscriptions.json', () => subscriptions.map((e) => e.toJson()).toList());
+    'subscriptions.json',
+    () => subscriptions.map((e) => e.toJson()).toList(),
+  );
   Future<void> saveSettings() => _write('settings.json', settings.toJson);
   Future<void> saveRouting() => _write('routing.json', routing.toJson);
 
   /// Completes when every queued write has hit the disk.
   Future<void> flush() => Future.wait(_queues.values);
+
+  /// The whole app as one JSON object, for a backup copy: everything the
+  /// four files hold, including the secrets that make the servers work.
+  Map<String, dynamic> toBackup() => {
+    'app': 'heanetwork',
+    'version': 1,
+    'createdAt': DateTime.now().toIso8601String(),
+    'settings': settings.toJson(),
+    'routing': routing.toJson(),
+    'profiles': [for (final p in profiles) p.toJson()],
+    'subscriptions': [for (final s in subscriptions) s.toJson()],
+  };
+
+  /// Replaces everything with what [backup] holds. Returns false when it is
+  /// not a backup of this app; then nothing is touched. A record that
+  /// cannot be read is left out rather than allowed to cost the rest, as
+  /// with a file on disk.
+  bool restoreFromBackup(Map<String, dynamic> backup) {
+    if (backup['app'] != 'heanetwork' ||
+        backup['version'] != 1 ||
+        backup['settings'] is! Map ||
+        backup['routing'] is! Map ||
+        backup['profiles'] is! List ||
+        backup['subscriptions'] is! List) {
+      return false;
+    }
+    try {
+      final nextSettings = AppSettings.fromJson(
+        Map<String, dynamic>.from(backup['settings'] as Map),
+      );
+      final nextRouting = RoutingSettings.fromJson(
+        Map<String, dynamic>.from(backup['routing'] as Map),
+      );
+      final nextProfiles = _records(backup['profiles'], ProxyProfile.fromJson);
+      final nextSubscriptions = _records(
+        backup['subscriptions'],
+        Subscription.fromJson,
+      );
+      settings = nextSettings;
+      routing = nextRouting;
+      profiles = nextProfiles;
+      subscriptions = nextSubscriptions;
+    } on Object {
+      return false;
+    }
+    return true;
+  }
 }
