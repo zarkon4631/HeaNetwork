@@ -15,7 +15,7 @@
   "rule_sets": {
     "geosite-category-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
-      "sha256": "231ecccda3227ec721cceaa9346435a58cddcbcb9b824913613e3fc7e489acda"
+      "sha256": "4a217ace59b07527bc25bb05bb68cf7b7cbce760d5b479bab0c3cc2273b0ae6f"
     },
     "geoip-ru": {
       "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
