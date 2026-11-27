@@ -263,6 +263,7 @@ class AppSettings {
     this.selectedProfileId,
     this.sshClientEnabled = false,
     this.sshRouteViaProxy = false,
+    this.sshTerminalTheme = 'default',
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
         portForwards = portForwards ?? [],
         installId = installId ?? newId() + newId();
@@ -319,6 +320,9 @@ class AppSettings {
   /// Default route for SSH connections when VPN is running.
   bool sshRouteViaProxy;
 
+  /// Selected SSH terminal color theme preset id.
+  String sshTerminalTheme;
+
   Map<String, dynamic> toJson() => {
         'locale': locale,
         'themeMode': themeMode,
@@ -348,6 +352,7 @@ class AppSettings {
         'selectedProfileId': selectedProfileId,
         if (sshClientEnabled) 'sshClientEnabled': true,
         if (sshRouteViaProxy) 'sshRouteViaProxy': true,
+        if (sshTerminalTheme != 'default') 'sshTerminalTheme': sshTerminalTheme,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -387,6 +392,9 @@ class AppSettings {
         selectedProfileId: j['selectedProfileId'] as String?,
         sshClientEnabled: j['sshClientEnabled'] as bool? ?? false,
         sshRouteViaProxy: j['sshRouteViaProxy'] as bool? ?? false,
+        sshTerminalTheme: (j['sshTerminalTheme'] as String?)?.isNotEmpty == true
+            ? j['sshTerminalTheme'] as String
+            : 'default',
       );
 }
 

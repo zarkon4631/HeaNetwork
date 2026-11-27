@@ -376,6 +376,10 @@ mixin AppStateSsh on AppStateBase {
     updateSettings((s) => s.sshRouteViaProxy = viaProxy, affectsCore: false);
   }
 
+  void setSshTerminalTheme(String themeId) {
+    updateSettings((s) => s.sshTerminalTheme = themeId, affectsCore: false);
+  }
+
   /// Resolves whether [host] should route through the active VPN proxy.
   bool effectiveSshViaProxy(SshHost host) => switch (host.routeMode) {
         SshRouteMode.direct => false,

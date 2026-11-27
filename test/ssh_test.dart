@@ -14,6 +14,7 @@ import 'package:heanetwork/core/services/ssh_connector.dart';
 import 'package:heanetwork/core/services/ssh_transfer.dart';
 import 'package:heanetwork/platform/windows/win32.dart' as win32;
 import 'package:heanetwork/ui/shell.dart';
+import 'package:heanetwork/ui/ssh_themes.dart';
 
 import 'support.dart';
 
@@ -25,13 +26,24 @@ void main() {
       final s = AppSettings();
       expect(s.sshClientEnabled, isFalse);
       expect(s.sshRouteViaProxy, isFalse);
+      expect(s.sshTerminalTheme, 'default');
 
       s
         ..sshClientEnabled = true
-        ..sshRouteViaProxy = true;
+        ..sshRouteViaProxy = true
+        ..sshTerminalTheme = 'dracula';
       final restored = AppSettings.fromJson(s.toJson());
       expect(restored.sshClientEnabled, isTrue);
       expect(restored.sshRouteViaProxy, isTrue);
+      expect(restored.sshTerminalTheme, 'dracula');
+    });
+
+    test('terminal theme presets have 10 unique entries and safe fallback', () {
+      expect(sshTerminalThemes, hasLength(10));
+      final ids = {for (final t in sshTerminalThemes) t.id};
+      expect(ids, hasLength(10));
+      expect(sshTerminalThemeById('dracula').name, 'Dracula');
+      expect(sshTerminalThemeById('nonexistent').id, 'default');
     });
 
     test('SshStore saves metadata and encrypted secrets separately', () async {

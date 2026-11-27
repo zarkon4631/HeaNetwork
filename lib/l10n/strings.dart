@@ -553,6 +553,7 @@ class S {
   String get sshRouteProxy => _t('Через VPN', 'Via VPN');
   String get sshRouteLabel => _t('Маршрут SSH', 'SSH route');
   String get sshTerminal => _t('Терминал', 'Terminal');
+  String get sshTerminalTheme => _t('Тема терминала', 'Terminal theme');
   String get sshSftp => _t('SFTP', 'SFTP');
   String get sshSnippets => _t('Сниппеты', 'Snippets');
   String get sshAddSnippet => _t('Новый сниппет', 'New snippet');

@@ -9,6 +9,7 @@ import '../l10n/strings.dart';
 import '../state/app_state.dart';
 import 'ssh_dialogs.dart';
 import 'ssh_sftp.dart';
+import 'ssh_themes.dart';
 import 'widgets.dart';
 
 /// Windows-only SSH client screen: host manager (including VPN servers),
@@ -163,6 +164,11 @@ class _SshPageState extends State<SshPage> {
                   onSelectionChanged: (v) => state.setSshRouteViaProxy(v.first),
                 ),
                 const SizedBox(width: 6),
+                _TerminalThemePicker(
+                  selectedId: state.settings.sshTerminalTheme,
+                  tooltip: s.sshTerminalTheme,
+                  onSelect: state.setSshTerminalTheme,
+                ),
                 IconButton(
                   tooltip: s.sshKeys,
                   onPressed: () => showSshKeysDialog(context, state),
@@ -425,6 +431,9 @@ class _SshPageState extends State<SshPage> {
                           child: TerminalView(
                             session.terminal,
                             controller: session.terminalController,
+                            theme: sshTerminalThemeById(
+                                    state.settings.sshTerminalTheme)
+                                .theme,
                             autofocus: true,
                             hardwareKeyboardOnly: true,
                             textStyle: const TerminalStyle(
@@ -450,6 +459,79 @@ class _SshPageState extends State<SshPage> {
           ],
         );
       },
+    );
+  }
+}
+
+class _TerminalThemePicker extends StatelessWidget {
+  const _TerminalThemePicker({
+    required this.selectedId,
+    required this.tooltip,
+    required this.onSelect,
+  });
+
+  final String selectedId;
+  final String tooltip;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = sshTerminalThemeById(selectedId);
+    return PopupMenuButton<String>(
+      tooltip: '$tooltip: ${current.name}',
+      initialValue: current.id,
+      onSelected: onSelect,
+      icon: const Icon(Icons.palette_outlined, size: 20),
+      itemBuilder: (_) => [
+        for (final preset in sshTerminalThemes)
+          PopupMenuItem<String>(
+            value: preset.id,
+            child: Row(
+              children: [
+                _ThemeSwatch(theme: preset.theme),
+                const SizedBox(width: 10),
+                Expanded(child: Text(preset.name)),
+                if (preset.id == current.id) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.check_rounded, size: 16),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ThemeSwatch extends StatelessWidget {
+  const _ThemeSwatch({required this.theme});
+
+  final TerminalTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 18,
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      decoration: BoxDecoration(
+        color: theme.background,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (final c in [theme.red, theme.green, theme.blue])
+            Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+            ),
+        ],
+      ),
     );
   }
 }
