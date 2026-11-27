@@ -3,6 +3,13 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.22
+
+- Подсветка ключевых данных в SSH-терминале как в Termius: IPv4 и MAC-адреса автоматически выделяются розовым, ошибки и отказы (Error, Fail, Denied, Timeout и др.) — красным, предупреждения и статусы (Yes, Warning, OK, Active и др.) — жёлтым, даже в обычном нераскрашенном выводе и при наборе команд. Серверные ANSI-цвета и полноэкранные приложения (vim, htop, nano) не затрагиваются; подсветку можно включать и отключать кнопкой на панели SSH.
+- Тема Termius Dark (тёмно-синий фон, зелёный текст, розовые IP, красные ошибки, жёлтые статусы) стала темой терминала по умолчанию.
+
+English: added Termius-style client-side keyword highlighting in the Windows SSH terminal — IPv4 and MAC addresses appear in pink/magenta, errors and failures in red, and warnings/confirmations (Yes, Warning, OK, Active, etc.) in yellow, including during char-by-char typing, while leaving server ANSI colors and full-screen TUI apps (vim, htop, nano) intact, with a toolbar toggle. Termius Dark is now the default terminal color theme.
+
 ## 1.0.21
 
 - Цветовые темы для SSH-терминала на Windows (как в Termius): добавлены 10 готовых палитр — Default Dark, Dracula, One Dark, Nord, Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Monokai, Solarized Dark и Solarized Light. Переключатель с предпросмотром цветов доступен прямо на панели экрана SSH, выбор сохраняется в настройках и попадает в резервную копию.
