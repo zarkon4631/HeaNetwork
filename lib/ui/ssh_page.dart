@@ -164,6 +164,18 @@ class _SshPageState extends State<SshPage> {
                   onSelectionChanged: (v) => state.setSshRouteViaProxy(v.first),
                 ),
                 const SizedBox(width: 6),
+                IconButton(
+                  tooltip: s.sshHighlightKeywords,
+                  isSelected: state.settings.sshHighlightKeywords,
+                  selectedIcon: Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 20,
+                    color: scheme.primary,
+                  ),
+                  icon: const Icon(Icons.auto_awesome_outlined, size: 20),
+                  onPressed: () => state.setSshHighlightKeywords(
+                      !state.settings.sshHighlightKeywords),
+                ),
                 _TerminalThemePicker(
                   selectedId: state.settings.sshTerminalTheme,
                   tooltip: s.sshTerminalTheme,

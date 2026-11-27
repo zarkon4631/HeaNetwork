@@ -11,10 +11,12 @@ import 'package:heanetwork/core/config/config_builder.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/models/ssh.dart';
 import 'package:heanetwork/core/services/ssh_connector.dart';
+import 'package:heanetwork/core/services/ssh_highlighter.dart';
 import 'package:heanetwork/core/services/ssh_transfer.dart';
 import 'package:heanetwork/platform/windows/win32.dart' as win32;
 import 'package:heanetwork/ui/shell.dart';
 import 'package:heanetwork/ui/ssh_themes.dart';
+import 'package:xterm/xterm.dart';
 
 import 'support.dart';
 
@@ -42,8 +44,74 @@ void main() {
       expect(sshTerminalThemes, hasLength(10));
       final ids = {for (final t in sshTerminalThemes) t.id};
       expect(ids, hasLength(10));
+      expect(sshTerminalThemeById('default').name, 'Termius Dark');
       expect(sshTerminalThemeById('dracula').name, 'Dracula');
       expect(sshTerminalThemeById('nonexistent').id, 'default');
+    });
+
+    test('keyword highlighter colors IPs, errors, and status words without breaking ANSI',
+        () {
+      final term = Terminal(maxLines: 100);
+      final hl = SshTerminalHighlighter();
+
+      hl.writeAndHighlight(
+        term,
+        'Syslog On\r\n'
+        'LogLevel Error\r\n'
+        'DisableViaHeader Yes\r\n'
+        'curl -x http://u:p@153.52.128.11:2443 https://ifconfig.me\r\n'
+        '\x1B[36mError\x1B[0m plain Error',
+        enabled: true,
+      );
+
+      // Line 0: "Syslog On" stays default foreground
+      final l0 = term.buffer.lines[0];
+      expect(l0.getForeground(0), CellColor.normal);
+      expect(l0.getForeground(7), CellColor.normal);
+
+      // Line 1: "LogLevel Error" -> "Error" (cols 9..13) is brightRed
+      final l1 = term.buffer.lines[1];
+      expect(l1.getForeground(0), CellColor.normal);
+      expect(l1.getForeground(9), CellColor.named | NamedColor.brightRed);
+
+      // Line 2: "DisableViaHeader Yes" -> "Yes" (cols 17..19) is brightYellow
+      final l2 = term.buffer.lines[2];
+      expect(l2.getForeground(17), CellColor.named | NamedColor.brightYellow);
+
+      // Line 3: "153.52.128.11" (cols 19..31) is brightMagenta, ":2443" normal
+      final l3 = term.buffer.lines[3];
+      expect(l3.getForeground(19), CellColor.named | NamedColor.brightMagenta);
+      expect(l3.getForeground(31), CellColor.named | NamedColor.brightMagenta);
+      expect(l3.getForeground(32), CellColor.normal);
+
+      // Line 4: server-colored cyan "Error" preserved, plain "Error" highlighted red
+      final l4 = term.buffer.lines[4];
+      expect(l4.getForeground(0), CellColor.named | NamedColor.cyan);
+      expect(l4.getForeground(12), CellColor.named | NamedColor.brightRed);
+
+      // clearAll removes only highlighter colors, keeping server cyan intact
+      hl.clearAll(term);
+      expect(l4.getForeground(0), CellColor.named | NamedColor.cyan);
+      expect(l4.getForeground(12), CellColor.normal);
+    });
+
+    test('keyword highlighter handles char-by-char echo and alt-buffer', () {
+      final term = Terminal(maxLines: 100);
+      final hl = SshTerminalHighlighter();
+
+      // Simulate typing IP one character at a time.
+      for (final ch in 'ping 10.0.0.1'.split('')) {
+        hl.writeAndHighlight(term, ch, enabled: true);
+      }
+      expect(
+        term.buffer.lines[0].getForeground(5),
+        CellColor.named | NamedColor.brightMagenta,
+      );
+
+      // Switch to alt buffer (like vim/htop) -> must not tint cells.
+      hl.writeAndHighlight(term, '\x1B[?1049hError 1.2.3.4', enabled: true);
+      expect(term.isUsingAltBuffer, isTrue);
+      expect(term.buffer.lines[0].getForeground(0), CellColor.normal);
     });
 
     test('SshStore saves metadata and encrypted secrets separately', () async {

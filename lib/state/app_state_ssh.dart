@@ -11,6 +11,7 @@ import '../core/models/settings.dart';
 import '../core/models/ssh.dart';
 import '../core/services/core_controller.dart';
 import '../core/services/ssh_connector.dart';
+import '../core/services/ssh_highlighter.dart';
 import '../core/services/ssh_transfer.dart';
 import '../platform/windows/win32.dart' as win32;
 import 'app_state_base.dart';
@@ -70,13 +71,17 @@ typedef SshHostKeyPrompt = Future<bool> Function({
 /// One open SSH tab (holds a single [SSHClient] shared by its PTY terminal and
 /// optional SFTP client).
 class SshTabSession extends ChangeNotifier {
-  SshTabSession({required this.host})
-      : terminal = Terminal(maxLines: 10000),
+  SshTabSession({
+    required this.host,
+    required this.highlightEnabled,
+  })  : terminal = Terminal(maxLines: 10000),
         terminalController = TerminalController();
 
   final SshHost host;
+  final bool Function() highlightEnabled;
   final Terminal terminal;
   final TerminalController terminalController;
+  final SshTerminalHighlighter highlighter = SshTerminalHighlighter();
 
   SshSessionStatus status = SshSessionStatus.disconnected;
   String? errorMessage;
@@ -256,17 +261,23 @@ class SshTabSession extends ChangeNotifier {
         }
       };
 
+      void writeChunk(String text) => highlighter.writeAndHighlight(
+            terminal,
+            text,
+            enabled: highlightEnabled(),
+          );
+
       _subs.add(
         shell.stdout
             .cast<List<int>>()
             .transform(const Utf8Decoder(allowMalformed: true))
-            .listen(terminal.write),
+            .listen(writeChunk),
       );
       _subs.add(
         shell.stderr
             .cast<List<int>>()
             .transform(const Utf8Decoder(allowMalformed: true))
-            .listen(terminal.write),
+            .listen(writeChunk),
       );
 
       unawaited(shell.done.then((_) {
@@ -378,6 +389,17 @@ mixin AppStateSsh on AppStateBase {
 
   void setSshTerminalTheme(String themeId) {
     updateSettings((s) => s.sshTerminalTheme = themeId, affectsCore: false);
+  }
+
+  void setSshHighlightKeywords(bool enabled) {
+    updateSettings((s) => s.sshHighlightKeywords = enabled, affectsCore: false);
+    for (final session in sshSessions) {
+      if (enabled) {
+        session.highlighter.highlightAll(session.terminal);
+      } else {
+        session.highlighter.clearAll(session.terminal);
+      }
+    }
   }
 
   /// Resolves whether [host] should route through the active VPN proxy.
@@ -492,7 +514,10 @@ mixin AppStateSsh on AppStateBase {
     SshHost host, {
     required SshHostKeyPrompt onVerifyHostKey,
   }) {
-    final session = SshTabSession(host: host);
+    final session = SshTabSession(
+      host: host,
+      highlightEnabled: () => settings.sshHighlightKeywords,
+    );
     sshSessions.add(session);
     notifyListeners();
     unawaited(connectSshSession(session, onVerifyHostKey: onVerifyHostKey));

@@ -264,6 +264,7 @@ class AppSettings {
     this.sshClientEnabled = false,
     this.sshRouteViaProxy = false,
     this.sshTerminalTheme = 'default',
+    this.sshHighlightKeywords = true,
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
         portForwards = portForwards ?? [],
         installId = installId ?? newId() + newId();
@@ -323,6 +324,9 @@ class AppSettings {
   /// Selected SSH terminal color theme preset id.
   String sshTerminalTheme;
 
+  /// Termius-style client-side highlighting of IPs, errors, and status keywords.
+  bool sshHighlightKeywords;
+
   Map<String, dynamic> toJson() => {
         'locale': locale,
         'themeMode': themeMode,
@@ -353,6 +357,7 @@ class AppSettings {
         if (sshClientEnabled) 'sshClientEnabled': true,
         if (sshRouteViaProxy) 'sshRouteViaProxy': true,
         if (sshTerminalTheme != 'default') 'sshTerminalTheme': sshTerminalTheme,
+        if (!sshHighlightKeywords) 'sshHighlightKeywords': false,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -395,6 +400,7 @@ class AppSettings {
         sshTerminalTheme: (j['sshTerminalTheme'] as String?)?.isNotEmpty == true
             ? j['sshTerminalTheme'] as String
             : 'default',
+        sshHighlightKeywords: j['sshHighlightKeywords'] as bool? ?? true,
       );
 }
 
