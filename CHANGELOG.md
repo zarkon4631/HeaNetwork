@@ -3,6 +3,12 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.21
+
+- Цветовые темы для SSH-терминала на Windows (как в Termius): добавлены 10 готовых палитр — Default Dark, Dracula, One Dark, Nord, Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Monokai, Solarized Dark и Solarized Light. Переключатель с предпросмотром цветов доступен прямо на панели экрана SSH, выбор сохраняется в настройках и попадает в резервную копию.
+
+English: added 10 Termius-style color themes for the Windows SSH terminal — Default Dark, Dracula, One Dark, Nord, Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Monokai, Solarized Dark, and Solarized Light. A palette picker with colour swatches sits right in the SSH toolbar and persists in settings and backups.
+
 ## 1.0.20
 
 - Встроенный SSH-клиент на Windows: многовкладочный терминал, панель сниппетов (быстрых команд) и менеджер SSH-ключей с генерацией Ed25519 и проверкой отпечатка сервера (TOFU). Функция выключена по умолчанию и включается тумблером в настройках («Приложение → SSH-клиент»); на Android не отображается.
