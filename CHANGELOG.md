@@ -3,6 +3,16 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.20
+
+- Встроенный SSH-клиент на Windows: многовкладочный терминал, панель сниппетов (быстрых команд) и менеджер SSH-ключей с генерацией Ed25519 и проверкой отпечатка сервера (TOFU). Функция выключена по умолчанию и включается тумблером в настройках («Приложение → SSH-клиент»); на Android не отображается.
+- В список хостов автоматически подтягиваются уже добавленные VPN-серверы: достаточно один раз указать логин и пароль или ключ, а обновление подписки не сбрасывает привязку. Переключатель маршрута позволяет подключаться по SSH напрямую (в обход TUN) или через активный VPN-туннель.
+- Встроенный SFTP-файловый менеджер поверх активного SSH-соединения: просмотр каталогов, загрузка, скачивание, создание папок, переименование, удаление и открытие файлов в редакторе ОС с предложением загрузить изменения обратно после сохранения.
+- Зашифрованная (AES-256-GCM) передача хостов, ключей и сниппетов между экземплярами HeaNetwork по локальной сети с 6-значным PIN-кодом или через файл .heassh / ссылку heanetwork:// с аккуратным слиянием без замены существующих записей. Пароли и приватные ключи на диске защищены через Windows DPAPI.
+- Обновлена контрольная сумма списка маршрутизации geosite-category-ru.
+
+English: opt-in built-in SSH client on Windows (off by default in Settings, hidden on Android) with a tabbed terminal, command snippets, Ed25519 key manager, and TOFU host key verification. Existing VPN servers appear ready for one-time SSH setup, with a Direct (bypassing TUN) vs Via VPN route switch. Includes an SFTP browser over the active SSH session with open-in-OS-editor and one-click upload back on save. Hosts, keys, and snippets can be transferred between HeaNetwork instances encrypted with AES-256-GCM over LAN using a 6-digit PIN or via .heassh files and heanetwork:// links, merging without overwriting; local secrets are protected with Windows DPAPI. Updated the pinned geosite-category-ru rule-set checksum.
+
 ## 1.0.19
 
 - Резервная копия всего приложения: серверы, подписки, маршрутизация и настройки сохраняются одним текстом в буфер обмена или файл и восстанавливаются на другом устройстве. Пароль шифрует копию по AES-256; без пароля она остаётся открытым текстом. Неверный пароль, повреждённая или неполная копия не меняет текущие данные.
