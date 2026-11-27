@@ -52,7 +52,12 @@ mixin AppStateConnection on AppStateBase {
   bool get realitySuspected => isConnected && realityFailures >= realityNoticeAt;
 
   /// The mode the running core was started in.
+  @override
   ConnectionMode? activeMode;
+
+  /// The actual mixed SOCKS5/HTTP port the running core bound to.
+  @override
+  int? activeMixedPort;
 
   ClashApi? _clash;
   StreamSubscription<TrafficSample>? _trafficSub;
@@ -335,6 +340,7 @@ mixin AppStateConnection on AppStateBase {
       pendingRestart = false;
       appliedFingerprint = coreFingerprint();
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
+      activeMixedPort = mixedPort;
       await _startDespiteRouting(config);
       await _leaveDeafStack(config, gen);
       if (gen != _connectGen) throw CoreCancelled();
@@ -360,6 +366,7 @@ mixin AppStateConnection on AppStateBase {
     }
     if (!connected) {
       activeMode = null;
+      activeMixedPort = null;
       // The core came up and a later step failed: it does not stay up behind
       // the error, with the system half pointed at it.
       if (status == CoreStatus.running) await _abandon();

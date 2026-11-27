@@ -10,6 +10,7 @@ import '../core/config/config_builder.dart';
 import '../core/models/panel_routing.dart';
 import '../core/models/profile.dart';
 import '../core/models/settings.dart';
+import '../core/models/ssh.dart';
 import '../core/services/core_controller.dart';
 import '../core/services/device_identity.dart';
 import '../core/services/latency_tester.dart';
@@ -100,6 +101,7 @@ abstract class AppStateBase extends ChangeNotifier {
     this.tcpProbe,
     this.publicIp,
     this.tunnelCheck,
+    this.sshSecretCodec,
     bool? elevated,
     Updater? updater,
   })  : elevated = elevated ??
@@ -135,6 +137,9 @@ abstract class AppStateBase extends ChangeNotifier {
   /// Finds out whether the running tunnel takes TCP connections (Windows);
   /// null skips the question.
   final Future<bool> Function()? tunnelCheck;
+
+  /// Encrypts SSH credentials on disk; defaults to Windows DPAPI in production.
+  final SshSecretCodec? sshSecretCodec;
 
   bool get isWindows => platform == CorePlatform.windows;
 
@@ -182,6 +187,15 @@ abstract class AppStateBase extends ChangeNotifier {
   /// Tears down what [AppState.init] started; the connection facet's part
   /// of [AppState.dispose].
   void disposeConnection();
+
+  /// Tears down active SSH sessions and watchers; the SSH facet implements it.
+  void disposeSsh();
+
+  /// The actual mixed SOCKS5/HTTP port the running core bound to, if connected.
+  int? get activeMixedPort;
+
+  /// The mode the running core was started in, if connected.
+  ConnectionMode? get activeMode;
 
   /// Drops the live connection; the connection facet implements it.
   Future<void> disconnect();
@@ -421,6 +435,7 @@ abstract class AppStateBase extends ChangeNotifier {
     _disposed = true;
     core.removeListener(onCoreChanged);
     disposeConnection();
+    disposeSsh();
     updater.close();
     super.dispose();
   }

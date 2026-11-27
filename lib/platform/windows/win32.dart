@@ -10,6 +10,7 @@ final _shell32 = DynamicLibrary.open('shell32.dll');
 final _user32 = DynamicLibrary.open('user32.dll');
 final _gdi32 = DynamicLibrary.open('gdi32.dll');
 final _advapi32 = DynamicLibrary.open('advapi32.dll');
+final _crypt32 = DynamicLibrary.open('crypt32.dll');
 final _wininet = DynamicLibrary.open('wininet.dll');
 final _version = DynamicLibrary.open('version.dll');
 
@@ -476,4 +477,101 @@ void _premultiply(Uint8List bgra) {
     bgra[i + 1] = bgra[i + 1] * a ~/ 255;
     bgra[i + 2] = bgra[i + 2] * a ~/ 255;
   }
+}
+
+// ---- DPAPI (per-user secret encryption) ----------------------------------
+
+final class _DataBlob extends Struct {
+  @Uint32()
+  external int cbData;
+  external Pointer<Uint8> pbData;
+}
+
+final _localFree = _kernel32
+    .lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>(
+        'LocalFree');
+
+final _cryptProtectData = _crypt32.lookupFunction<
+    Int32 Function(Pointer<_DataBlob>, Pointer<Utf16>, Pointer<_DataBlob>,
+        Pointer<Void>, Pointer<Void>, Uint32, Pointer<_DataBlob>),
+    int Function(Pointer<_DataBlob>, Pointer<Utf16>, Pointer<_DataBlob>,
+        Pointer<Void>, Pointer<Void>, int, Pointer<_DataBlob>)>(
+    'CryptProtectData');
+
+final _cryptUnprotectData = _crypt32.lookupFunction<
+    Int32 Function(Pointer<_DataBlob>, Pointer<Pointer<Utf16>>,
+        Pointer<_DataBlob>, Pointer<Void>, Pointer<Void>, Uint32,
+        Pointer<_DataBlob>),
+    int Function(Pointer<_DataBlob>, Pointer<Pointer<Utf16>>,
+        Pointer<_DataBlob>, Pointer<Void>, Pointer<Void>, int,
+        Pointer<_DataBlob>)>('CryptUnprotectData');
+
+const _cryptProtectUiForbidden = 0x1;
+
+/// Encrypts [plain] for the current Windows user with DPAPI.
+Uint8List? dpapiProtect(Uint8List plain) {
+  return using((arena) {
+    final inData = arena<Uint8>(plain.isEmpty ? 1 : plain.length);
+    if (plain.isNotEmpty) inData.asTypedList(plain.length).setAll(0, plain);
+    final inBlob = arena<_DataBlob>()
+      ..ref.cbData = plain.length
+      ..ref.pbData = inData;
+    final outBlob = arena<_DataBlob>();
+    if (_cryptProtectData(
+            inBlob, nullptr, nullptr, nullptr, nullptr, _cryptProtectUiForbidden, outBlob) ==
+        0) {
+      return null;
+    }
+    try {
+      return Uint8List.fromList(
+          outBlob.ref.pbData.asTypedList(outBlob.ref.cbData));
+    } finally {
+      if (outBlob.ref.pbData != nullptr) _localFree(outBlob.ref.pbData.cast());
+    }
+  });
+}
+
+/// Decrypts bytes produced by [dpapiProtect] for the current Windows user.
+Uint8List? dpapiUnprotect(Uint8List cipher) {
+  if (cipher.isEmpty) return null;
+  return using((arena) {
+    final inData = arena<Uint8>(cipher.length);
+    inData.asTypedList(cipher.length).setAll(0, cipher);
+    final inBlob = arena<_DataBlob>()
+      ..ref.cbData = cipher.length
+      ..ref.pbData = inData;
+    final outBlob = arena<_DataBlob>();
+    if (_cryptUnprotectData(
+            inBlob, nullptr, nullptr, nullptr, nullptr, _cryptProtectUiForbidden, outBlob) ==
+        0) {
+      return null;
+    }
+    try {
+      return Uint8List.fromList(
+          outBlob.ref.pbData.asTypedList(outBlob.ref.cbData));
+    } finally {
+      if (outBlob.ref.pbData != nullptr) _localFree(outBlob.ref.pbData.cast());
+    }
+  });
+}
+
+// ---- file & URI associations (HKCU, no admin required) -------------------
+
+/// Registers the `heanetwork://` URI scheme and `.heassh` file extension for
+/// the current user so clicking a bundle or link opens it in this executable.
+void registerSshAssociations(String executablePath) {
+  final cmd = '"$executablePath" "%1"';
+  const RegistryValue(r'Software\Classes\heanetwork', '')
+      .writeString('URL:HeaNetwork Protocol');
+  const RegistryValue(r'Software\Classes\heanetwork', 'URL Protocol')
+      .writeString('');
+  const RegistryValue(r'Software\Classes\heanetwork\shell\open\command', '')
+      .writeString(cmd);
+  const RegistryValue(r'Software\Classes\.heassh', '')
+      .writeString('HeaNetwork.SshBundle');
+  const RegistryValue(r'Software\Classes\HeaNetwork.SshBundle', '')
+      .writeString('HeaNetwork SSH Bundle');
+  const RegistryValue(
+          r'Software\Classes\HeaNetwork.SshBundle\shell\open\command', '')
+      .writeString(cmd);
 }

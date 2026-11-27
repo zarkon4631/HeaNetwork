@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -172,6 +173,13 @@ class DesktopShell with WindowListener, TrayListener {
 
   @override
   void onWindowClose() => _onClose();
+
+  @override
+  void onWindowFocus() {
+    if (state.settings.sshClientEnabled) {
+      unawaited(state.checkPendingSshHandoff());
+    }
+  }
 
   Future<void> _onClose() async {
     var action = state.settings.closeAction;

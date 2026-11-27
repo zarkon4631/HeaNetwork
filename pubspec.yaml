@@ -32,6 +32,8 @@ dependencies:
   # 0.6+ builds a native library through Dart build hooks, which needs a C
   # toolchain even for `flutter test`. 0.5 is a plain plugin.
   tray_manager: ">=0.5.0 <0.6.0"
+  dartssh2: ^4.2.0
+  xterm: ^4.0.0
 
 dev_dependencies:
   flutter_test:

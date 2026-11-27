@@ -85,6 +85,9 @@ Future<void> main(List<String> args) async {
   }
   runApp(HeaApp(state: state));
   await state.init(connect: args.contains(connectFlag));
+  if (windows) {
+    unawaited(state.checkPendingSshHandoff(args: args));
+  }
   if (Platform.isAndroid) {
     // Kept alive for the life of the app: it feeds the home-screen widget
     // and the quick settings tile.

@@ -222,6 +222,13 @@ class SettingsPage extends StatelessWidget {
                         .updateSettings((x) => x.closeAction = v!, affectsCore: false),
                   ),
                 ),
+              if (state.isWindows)
+                SwitchListTile(
+                  title: Text(s.sshFeatureTitle),
+                  subtitle: Text(s.sshFeatureHint),
+                  value: st.sshClientEnabled,
+                  onChanged: state.setSshClientEnabled,
+                ),
               SwitchListTile(
                 title: Text(s.animations),
                 subtitle: Text(s.animationsHint),

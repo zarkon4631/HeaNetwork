@@ -7,6 +7,7 @@ import 'backdrop.dart';
 import 'home_page.dart';
 import 'routing_page.dart';
 import 'settings_page.dart';
+import 'ssh_page.dart';
 import 'theme.dart';
 
 /// The selected top-level tab, reachable from any page so that e.g. a
@@ -18,6 +19,7 @@ class ShellTab extends InheritedNotifier<ValueNotifier<int>> {
   static const home = 0;
   static const routing = 1;
   static const settings = 2;
+  static const ssh = 3;
 
   static ValueNotifier<int> of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellTab>()!.notifier!;
@@ -76,18 +78,38 @@ class _ShellState extends State<Shell> {
 
   Widget _build(BuildContext context, int index) {
     final s = S.of(context);
-    final (compact, windows, tv) =
-        context.select<AppState, (bool, bool, bool)>(
-            (st) => (st.compactView, st.isWindows, st.isTv));
+    final (compact, windows, tv, sshEnabled, hasPendingSsh) =
+        context.select<AppState, (bool, bool, bool, bool, bool)>((st) => (
+              st.compactView,
+              st.isWindows,
+              st.isTv,
+              st.settings.sshClientEnabled,
+              st.pendingSshImport != null,
+            ));
     final state = context.read<AppState>();
+    final showSsh = windows && sshEnabled;
+    if (showSsh && hasPendingSsh && index != ShellTab.ssh) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tab.value = ShellTab.ssh;
+      });
+    }
+    final effectiveIndex =
+        (!showSsh && index == ShellTab.ssh) ? ShellTab.home : index;
     final destinations = [
-      (Icons.home_outlined, Icons.home_rounded, s.navHome),
-      (Icons.alt_route_outlined, Icons.alt_route_rounded, s.navRouting),
-      (Icons.settings_outlined, Icons.settings_rounded, s.navSettings),
+      (ShellTab.home, Icons.home_outlined, Icons.home_rounded, s.navHome),
+      (ShellTab.routing, Icons.alt_route_outlined, Icons.alt_route_rounded, s.navRouting),
+      if (showSsh)
+        (ShellTab.ssh, Icons.terminal_outlined, Icons.terminal_rounded, s.navSsh),
+      (ShellTab.settings, Icons.settings_outlined, Icons.settings_rounded, s.navSettings),
     ];
     final pages = IndexedStack(
-      index: index,
-      children: const [HomePage(), RoutingPage(), SettingsPage()],
+      index: effectiveIndex,
+      children: [
+        const HomePage(),
+        const RoutingPage(),
+        const SettingsPage(),
+        if (showSsh) const SshPage(),
+      ],
     );
     final body = Column(
       children: [
@@ -114,9 +136,9 @@ class _ShellState extends State<Shell> {
               children: [
                 _Rail(
                   state: state,
-                  index: index,
+                  selectedTab: effectiveIndex,
                   destinations: destinations,
-                  onSelect: (i) => _tab.value = i,
+                  onSelect: (tab) => _tab.value = tab,
                 ),
                 Expanded(child: body),
               ],
@@ -124,6 +146,9 @@ class _ShellState extends State<Shell> {
           ),
         );
       }
+      final navPos = destinations
+          .indexWhere((d) => d.$1 == effectiveIndex)
+          .clamp(0, destinations.length - 1);
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: SafeArea(
@@ -135,11 +160,11 @@ class _ShellState extends State<Shell> {
           ),
         ),
         bottomNavigationBar: NavigationBar(
-          selectedIndex: index,
-          onDestinationSelected: (i) => _tab.value = i,
+          selectedIndex: navPos,
+          onDestinationSelected: (i) => _tab.value = destinations[i].$1,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: [
-            for (final (icon, selected, label) in destinations)
+            for (final (_, icon, selected, label) in destinations)
               NavigationDestination(
                 icon: Icon(icon),
                 selectedIcon: Icon(selected),
@@ -193,14 +218,14 @@ class _QuickToggles extends StatelessWidget {
 class _Rail extends StatelessWidget {
   const _Rail({
     required this.state,
-    required this.index,
+    required this.selectedTab,
     required this.destinations,
     required this.onSelect,
   });
 
   final AppState state;
-  final int index;
-  final List<(IconData, IconData, String)> destinations;
+  final int selectedTab;
+  final List<(int, IconData, IconData, String)> destinations;
   final ValueChanged<int> onSelect;
 
   @override
@@ -226,12 +251,12 @@ class _Rail extends StatelessWidget {
                   const SizedBox(height: 12),
                   const AppLogo(size: 42),
                   const SizedBox(height: 14),
-                  for (final (i, (icon, selected, label)) in destinations.indexed)
+                  for (final (tab, icon, selected, label) in destinations)
                     _RailItem(
-                      icon: i == index ? selected : icon,
+                      icon: tab == selectedTab ? selected : icon,
                       label: label,
-                      selected: i == index,
-                      onTap: () => onSelect(i),
+                      selected: tab == selectedTab,
+                      onTap: () => onSelect(tab),
                     ),
                   const Spacer(),
                   if (state.isWindows) ...[

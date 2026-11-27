@@ -261,6 +261,8 @@ class AppSettings {
     this.ownServersCollapsed = false,
     List<PortForward>? portForwards,
     this.selectedProfileId,
+    this.sshClientEnabled = false,
+    this.sshRouteViaProxy = false,
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
         portForwards = portForwards ?? [],
         installId = installId ?? newId() + newId();
@@ -311,6 +313,12 @@ class AppSettings {
   /// The server to connect to.
   String? selectedProfileId;
 
+  /// Windows-only built-in SSH terminal & SFTP client. Off by default.
+  bool sshClientEnabled;
+
+  /// Default route for SSH connections when VPN is running.
+  bool sshRouteViaProxy;
+
   Map<String, dynamic> toJson() => {
         'locale': locale,
         'themeMode': themeMode,
@@ -338,6 +346,8 @@ class AppSettings {
         'ownServersCollapsed': ownServersCollapsed,
         'portForwards': portForwards.map((e) => e.toJson()).toList(),
         'selectedProfileId': selectedProfileId,
+        if (sshClientEnabled) 'sshClientEnabled': true,
+        if (sshRouteViaProxy) 'sshRouteViaProxy': true,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -375,6 +385,8 @@ class AppSettings {
             .map((e) => PortForward.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
         selectedProfileId: j['selectedProfileId'] as String?,
+        sshClientEnabled: j['sshClientEnabled'] as bool? ?? false,
+        sshRouteViaProxy: j['sshRouteViaProxy'] as bool? ?? false,
       );
 }
 

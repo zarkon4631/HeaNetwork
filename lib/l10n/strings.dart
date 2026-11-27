@@ -28,6 +28,7 @@ class S {
   // ---- navigation
   String get navHome => _t('Главная', 'Home');
   String get navRouting => _t('Маршруты', 'Routing');
+  String get navSsh => _t('SSH', 'SSH');
   String get navSettings => _t('Настройки', 'Settings');
 
   // ---- common
@@ -526,6 +527,113 @@ class S {
   String get trayConnect => _t('Подключить', 'Connect');
   String get trayDisconnect => _t('Отключить', 'Disconnect');
   String get trayQuit => _t('Выход', 'Quit');
+
+  // ---- SSH client (Windows only, opt-in)
+  String get sshFeatureTitle => _t('SSH-клиент (Терминал и SFTP)', 'SSH client (Terminal & SFTP)');
+  String get sshFeatureHint => _t(
+      'Показывает вкладку SSH в меню для управления серверами по SSH и SFTP',
+      'Shows an SSH tab in the menu to manage servers over SSH and SFTP');
+  String get sshHosts => _t('Хосты', 'Hosts');
+  String get sshVpnServers => _t('Серверы VPN', 'VPN servers');
+  String get sshAddHost => _t('Добавить хост', 'Add host');
+  String get sshEditHost => _t('Изменить хост', 'Edit host');
+  String get sshDeleteHostQ => _t('Удалить этот SSH-хост?', 'Delete this SSH host?');
+  String get sshConnect => _t('Подключить', 'Connect');
+  String get sshReconnect => _t('Переподключить', 'Reconnect');
+  String get sshDisconnect => _t('Отключить', 'Disconnect');
+  String get sshHostAddress => _t('Адрес (IP или домен)', 'Host (IP or domain)');
+  String get sshPort => _t('Порт', 'Port');
+  String get sshUsername => _t('Пользователь', 'Username');
+  String get sshAuthPassword => _t('Пароль', 'Password');
+  String get sshAuthKey => _t('SSH-ключ', 'SSH key');
+  String get sshPassword => _t('Пароль', 'Password');
+  String get sshPasswordKeepHint => _t('Оставьте пустым, чтобы не менять', 'Leave blank to keep');
+  String get sshRouteGlobal => _t('Как глобально', 'Use global');
+  String get sshRouteDirect => _t('Напрямую', 'Direct');
+  String get sshRouteProxy => _t('Через VPN', 'Via VPN');
+  String get sshRouteLabel => _t('Маршрут SSH', 'SSH route');
+  String get sshTerminal => _t('Терминал', 'Terminal');
+  String get sshSftp => _t('SFTP', 'SFTP');
+  String get sshSnippets => _t('Сниппеты', 'Snippets');
+  String get sshAddSnippet => _t('Новый сниппет', 'New snippet');
+  String get sshEditSnippet => _t('Изменить сниппет', 'Edit snippet');
+  String get sshSnippetCommand => _t('Команда', 'Command');
+  String get sshSnippetAutoRun => _t('Выполнять сразу (Enter)', 'Run immediately (Enter)');
+  String get sshKeys => _t('Ключи', 'Keys');
+  String get sshNoKeys => _t('Нет сохранённых ключей', 'No saved keys');
+  String get sshImportKeyFile => _t('Из файла…', 'From file…');
+  String get sshPasteKey => _t('Вставить ключ', 'Paste key');
+  String get sshGenerateKey => _t('Создать Ed25519', 'Generate Ed25519');
+  String get sshPrivateKey => _t('Приватный ключ (PEM / OpenSSH)', 'Private key (PEM / OpenSSH)');
+  String get sshPassphrase => _t('Кодовая фраза (если есть)', 'Passphrase (optional)');
+  String get sshCopyPublicKey => _t('Скопировать публичный ключ', 'Copy public key');
+  String get sshNoHosts => _t('Нет SSH-хостов. Добавьте вручную или выберите сервер VPN ниже.',
+      'No SSH hosts yet. Add one manually or pick a VPN server below.');
+  String get sshConfigureForVpn => _t('Настроить SSH', 'Set up SSH');
+  String get sshConnecting => _t('Подключение…', 'Connecting…');
+  String get sshConnected => _t('Подключено', 'Connected');
+  String get sshDisconnected => _t('Отключено', 'Disconnected');
+  String get sshVpnNotRunning => _t(
+      'VPN не подключён: включите VPN или переключите маршрут SSH на «Напрямую»',
+      'VPN is not connected: turn VPN on or switch SSH route to Direct');
+  String get sshHostKeyTitle => _t('Проверка ключа сервера', 'Verify server host key');
+  String get sshHostKeyChangedTitle => _t('ВНИМАНИЕ: ключ сервера изменился!', 'WARNING: server host key changed!');
+  String sshHostKeyBody(String host, String type, String fp, String? oldFp) => oldFp == null
+      ? _t(
+          'Первое подключение к $host.\nТип: $type\nОтпечаток: $fp\n\nДоверять этому серверу и сохранить отпечаток?',
+          'First connection to $host.\nType: $type\nFingerprint: $fp\n\nTrust this server and save its fingerprint?')
+      : _t(
+          'Ключ сервера $host отличается от сохранённого!\nБыло: $oldFp\nСтало: $fp\n\nВозможна подмена (MITM) или переустановка ОС. Продолжить и обновить ключ?',
+          'Host key for $host differs from the saved one!\nSaved: $oldFp\nNew: $fp\n\nThis may mean a MITM attack or an OS reinstall. Continue and update?');
+  String get sshTrust => _t('Доверять', 'Trust');
+
+  // ---- SFTP
+  String get sftpUp => _t('Вверх', 'Up');
+  String get sftpUpload => _t('Загрузить', 'Upload');
+  String get sftpDownload => _t('Скачать', 'Download');
+  String get sftpOpenEditor => _t('Открыть в редакторе ОС', 'Open in OS editor');
+  String get sftpNewFolder => _t('Новая папка', 'New folder');
+  String get sftpFolderName => _t('Имя папки', 'Folder name');
+  String get sftpNewName => _t('Новое имя', 'New name');
+  String sftpDeleteQ(String name) => _t('Удалить «$name»?', 'Delete "$name"?');
+  String get sftpEmptyDir => _t('Папка пуста', 'Folder is empty');
+  String get sftpShowHidden => _t('Скрытые файлы', 'Hidden files');
+  String sftpDownloaded(String name) => _t('Скачано: $name', 'Downloaded: $name');
+  String sftpUploaded(String name) => _t('Загружено: $name', 'Uploaded: $name');
+  String sftpModifiedBanner(String name) => _t(
+      'Файл «$name» изменён в редакторе', 'File "$name" was modified in editor');
+  String get sftpUploadBack => _t('Загрузить обратно', 'Upload changes');
+
+  // ---- SSH transfer (LAN & file/link)
+  String get sshTransfer => _t('Передать / Принять', 'Send / Receive');
+  String get sshSend => _t('Отправить', 'Send');
+  String get sshReceive => _t('Принять', 'Receive');
+  String get sshTransferLan => _t('По локальной сети (LAN)', 'Over LAN');
+  String get sshTransferFileLink => _t('Файл / Ссылка', 'File / Link');
+  String get sshTransferSelect => _t('Что передать', 'What to include');
+  String get sshIncludeSecrets => _t('Включить пароли и приватные ключи', 'Include passwords and private keys');
+  String get sshPinCode => _t('PIN / Пароль шифрования', 'Encryption PIN / Password');
+  String get sshStartLanSend => _t('Начать раздачу в LAN', 'Start LAN broadcast');
+  String get sshStopLanSend => _t('Остановить', 'Stop');
+  String sshLanReady(String addr, String pin) => _t(
+      'Ожидание другого HeaNetwork в сети…\nАдрес: $addr\nPIN-код: $pin',
+      'Waiting for another HeaNetwork on LAN…\nAddress: $addr\nPIN: $pin');
+  String get sshLanNoNetwork => _t('Локальная сеть не найдена', 'No local network address found');
+  String get sshLanScanning => _t('Поиск HeaNetwork в локальной сети…', 'Looking for HeaNetwork on LAN…');
+  String get sshLanManualAddr => _t('Или введите адрес вручную (IP:порт)', 'Or enter address manually (IP:port)');
+  String get sshSaveBundle => _t('Сохранить .heassh…', 'Save .heassh…');
+  String get sshCopyLink => _t('Копировать ссылку', 'Copy link');
+  String get sshOpenBundle => _t('Открыть .heassh…', 'Open .heassh…');
+  String get sshPasteLinkHint => _t('Вставьте heanetwork://… или текст пакета', 'Paste heanetwork://… or bundle text');
+  String get sshImportAction => _t('Импортировать', 'Import');
+  String get sshBadBundleOrPin => _t('Неверный PIN/пароль или повреждённый пакет', 'Wrong PIN/password or invalid bundle');
+  String sshImportPreview(int hosts, int keys, int snippets) => _t(
+      'Будет добавлено (без замены существующих): хостов — $hosts, ключей — $keys, сниппетов — $snippets',
+      'Will add (without overwriting existing): $hosts hosts, $keys keys, $snippets snippets');
+  String sshImportedDone(int hosts, int keys, int snippets) => _t(
+      'Импортировано: хостов — $hosts, ключей — $keys, сниппетов — $snippets',
+      'Imported: $hosts hosts, $keys keys, $snippets snippets');
+  String get sshSentOk => _t('Пакет успешно передан', 'Bundle sent successfully');
 
   String _plural(int n, String one, String few, String many) {
     final m10 = n % 10;
