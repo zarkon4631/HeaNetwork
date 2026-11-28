@@ -79,6 +79,15 @@ const ruDomainSuffixes = ['.ru', '.su', '.xn--p1ai', '.moscow', '.tatar'];
 
 const urlTestTarget = 'https://www.gstatic.com/generate_204';
 
+const antigravityDomains = [
+  'cloudcode-pa.googleapis.com',
+  'daily-cloudcode-pa.googleapis.com',
+  'aicode.googleapis.com',
+];
+
+const antigravityProcessPattern =
+    r'(?i)(^|[\\/])(Antigravity|Antigravity IDE|Antigravity CLI|agy|language_server|language_server_windows_x64)\.exe$';
+
 /// The tunnel's own IPv4 address. The subnet deliberately differs from
 /// sing-box's default 172.19.0.1/30, which most other clients use.
 const tunAddress4 = '172.29.117.1/30';
@@ -320,7 +329,7 @@ Map<String, dynamic> buildConfig({
       'final': plan.proxyDefault ? tagProxy : tagDirect,
       'auto_detect_interface': true,
       'default_domain_resolver': tagDnsDirect,
-      if (plan.apps.isNotEmpty) 'find_process': true,
+      if (plan.apps.isNotEmpty || plan.antigravity) 'find_process': true,
     },
     'experimental': {
       'cache_file': {
@@ -350,6 +359,8 @@ class _Plan {
   final PanelRouting? panel;
 
   bool get isAndroid => env.platform == CorePlatform.android;
+  bool get antigravity =>
+      settings.antigravityEnabled && env.platform == CorePlatform.windows;
   late final bool tun = isAndroid || settings.mode == ConnectionMode.tun;
   late final bool useFakeIp = settings.fakeIp && tun;
   late final AntiDpiSettings antiDpi = settings.antiDpi.effective;
@@ -517,6 +528,14 @@ class _Plan {
       if (cond.isNotEmpty) rules.add({...cond, ...routeTo(action)});
     }
 
+    if (antigravity) {
+      rules.add({
+        'process_path_regex': [antigravityProcessPattern],
+        ...routeTo(RouteAction.proxy),
+      });
+      rules.add({'domain': antigravityDomains, ...routeTo(RouteAction.proxy)});
+    }
+
     // The panel's rules come after the user's own, which therefore win.
     final panel = this.panel;
     if (panel != null) {
@@ -594,6 +613,14 @@ class _Plan {
     final direct = _domainConditions(domainsWith(RouteAction.direct), domainsOnly: true);
     if (direct.isNotEmpty) {
       rules.add({...direct, 'action': 'route', 'server': tagDnsDirect});
+    }
+
+    if (antigravity) {
+      rules.add({
+        'domain': antigravityDomains,
+        'action': 'route',
+        'server': tagDnsRemote,
+      });
     }
 
     final panel = this.panel;

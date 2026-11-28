@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
+import 'antigravity_page.dart';
 import 'backdrop.dart';
 import 'home_page.dart';
 import 'routing_page.dart';
@@ -20,6 +21,7 @@ class ShellTab extends InheritedNotifier<ValueNotifier<int>> {
   static const routing = 1;
   static const settings = 2;
   static const ssh = 3;
+  static const antigravity = 4;
 
   static ValueNotifier<int> of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellTab>()!.notifier!;
@@ -78,28 +80,39 @@ class _ShellState extends State<Shell> {
 
   Widget _build(BuildContext context, int index) {
     final s = S.of(context);
-    final (compact, windows, tv, sshEnabled, hasPendingSsh) =
-        context.select<AppState, (bool, bool, bool, bool, bool)>((st) => (
+    final (compact, windows, tv, sshEnabled, hasPendingSsh, antigravityEnabled) =
+        context.select<AppState, (bool, bool, bool, bool, bool, bool)>((st) => (
               st.compactView,
               st.isWindows,
               st.isTv,
               st.settings.sshClientEnabled,
               st.pendingSshImport != null,
+              st.settings.antigravityEnabled,
             ));
     final state = context.read<AppState>();
     final showSsh = windows && sshEnabled;
+    final showAntigravity = windows && antigravityEnabled;
     if (showSsh && hasPendingSsh && index != ShellTab.ssh) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _tab.value = ShellTab.ssh;
       });
     }
-    final effectiveIndex =
-        (!showSsh && index == ShellTab.ssh) ? ShellTab.home : index;
+    final effectiveIndex = (!showSsh && index == ShellTab.ssh) ||
+            (!showAntigravity && index == ShellTab.antigravity)
+        ? ShellTab.home
+        : index;
     final destinations = [
       (ShellTab.home, Icons.home_outlined, Icons.home_rounded, s.navHome),
       (ShellTab.routing, Icons.alt_route_outlined, Icons.alt_route_rounded, s.navRouting),
       if (showSsh)
         (ShellTab.ssh, Icons.terminal_outlined, Icons.terminal_rounded, s.navSsh),
+      if (showAntigravity)
+        (
+          ShellTab.antigravity,
+          Icons.auto_awesome_outlined,
+          Icons.auto_awesome_rounded,
+          s.navAntigravity,
+        ),
       (ShellTab.settings, Icons.settings_outlined, Icons.settings_rounded, s.navSettings),
     ];
     final pages = IndexedStack(
@@ -108,7 +121,8 @@ class _ShellState extends State<Shell> {
         const HomePage(),
         const RoutingPage(),
         const SettingsPage(),
-        if (showSsh) const SshPage(),
+        if (showSsh) const SshPage() else const SizedBox.shrink(),
+        if (showAntigravity) const AntigravityPage() else const SizedBox.shrink(),
       ],
     );
     final body = Column(

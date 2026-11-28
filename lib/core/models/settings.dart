@@ -265,6 +265,7 @@ class AppSettings {
     this.sshRouteViaProxy = false,
     this.sshTerminalTheme = 'default',
     this.sshHighlightKeywords = true,
+    this.antigravityEnabled = false,
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
         portForwards = portForwards ?? [],
         installId = installId ?? newId() + newId();
@@ -327,6 +328,9 @@ class AppSettings {
   /// Termius-style client-side highlighting of IPs, errors, and status keywords.
   bool sshHighlightKeywords;
 
+  /// Windows-only Antigravity routing page and its built-in core rules.
+  bool antigravityEnabled;
+
   Map<String, dynamic> toJson() => {
         'locale': locale,
         'themeMode': themeMode,
@@ -358,6 +362,7 @@ class AppSettings {
         if (sshRouteViaProxy) 'sshRouteViaProxy': true,
         if (sshTerminalTheme != 'default') 'sshTerminalTheme': sshTerminalTheme,
         if (!sshHighlightKeywords) 'sshHighlightKeywords': false,
+        if (antigravityEnabled) 'antigravityEnabled': true,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -401,6 +406,7 @@ class AppSettings {
             ? j['sshTerminalTheme'] as String
             : 'default',
         sshHighlightKeywords: j['sshHighlightKeywords'] as bool? ?? true,
+        antigravityEnabled: j['antigravityEnabled'] as bool? ?? false,
       );
 }
 

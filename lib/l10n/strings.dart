@@ -29,6 +29,7 @@ class S {
   String get navHome => _t('Главная', 'Home');
   String get navRouting => _t('Маршруты', 'Routing');
   String get navSsh => _t('SSH', 'SSH');
+  String get navAntigravity => _t('Antigravity', 'Antigravity');
   String get navSettings => _t('Настройки', 'Settings');
 
   // ---- common
@@ -527,6 +528,40 @@ class S {
   String get trayConnect => _t('Подключить', 'Connect');
   String get trayDisconnect => _t('Отключить', 'Disconnect');
   String get trayQuit => _t('Выход', 'Quit');
+
+  // ---- Antigravity (Windows only, opt-in)
+  String get antigravityFeatureTitle => _t('Antigravity', 'Antigravity');
+  String get antigravityFeatureHint => _t(
+      'Показывает вкладку и направляет домены, DNS и Language Server через VPN. Нужен режим VPN',
+      'Shows a tab and routes Antigravity domains, DNS and Language Server through the VPN. Requires VPN mode');
+  String get antigravityStatus => _t('Доступ к Antigravity', 'Antigravity access');
+  String get antigravityStatusHint => _t(
+      'Через ваш текущий VPN-сервер, без сторонних релеев, сертификатов и изменения файлов Antigravity',
+      'Through your current VPN server, without third-party relays, certificates or changes to Antigravity files');
+  String get antigravityRoutingActive => _t('Маршрутизация включена', 'Routing is active');
+  String get antigravityDisconnected => _t('VPN не подключён', 'VPN is disconnected');
+  String get antigravityConnectHint => _t(
+      'Подключите VPN на главной странице. Правила применятся автоматически.',
+      'Connect to the VPN on the Home page. The rules will apply automatically.');
+  String get antigravityTunHint => _t(
+      'Language Server может не использовать системный прокси. Выберите режим «VPN (весь трафик)» и переподключитесь.',
+      'Language Server may ignore the system proxy. Select “VPN (all traffic)” mode and reconnect.');
+  String get antigravityRoutes => _t('Что идёт через VPN', 'What uses the VPN');
+  String get antigravityRoutesHint => _t(
+      'Ваши собственные правила на странице «Маршруты» имеют приоритет',
+      'Your own rules on the Routing page take priority');
+  String get antigravityDns => _t('DNS для этих доменов', 'DNS for these domains');
+  String get antigravityCheckTitle => _t('Проверка соединения', 'Connection check');
+  String get antigravityCheckHint => _t(
+      'HTTPS-запрос через текущий VPN без данных аккаунта. Любой HTTP-ответ подтверждает соединение, но не работоспособность модели.',
+      'An HTTPS request through the current VPN without account data. Any HTTP response confirms connectivity, not that the model works.');
+  String get antigravityChecking => _t('Проверка…', 'Checking…');
+  String get antigravityRegionBlocked =>
+      _t('Сервер сообщает: регион не поддерживается', 'The server reports an unsupported location');
+  String antigravityLatency(int ms) => _t('$ms мс', '$ms ms');
+  String get antigravityClientNote => _t(
+      'Сетевой режим не изменяет клиентскую проверку ineligible. При региональном отказе выберите сервер в поддерживаемой стране и переподключитесь.',
+      'Network mode does not change the client-side ineligible check. For a location error, choose a server in a supported country and reconnect.');
 
   // ---- SSH client (Windows only, opt-in)
   String get sshFeatureTitle => _t('SSH-клиент (Терминал и SFTP)', 'SSH client (Terminal & SFTP)');
