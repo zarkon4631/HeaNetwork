@@ -3,6 +3,14 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.24
+
+- Выделенный HTTP-прокси на вкладке «Antigravity» (Windows): введите прокси в формате user:pass@host:port (поддерживаются также http://, https:// и host:port), и трафик Antigravity будет автоматически направляться через него сразу при запуске HeaNetwork — даже когда основной VPN выключен.
+- Полная независимость от основного VPN: можно одновременно использовать свой HTTP-прокси для Antigravity и основной VPN-сервер для остального трафика, а также менять или отключать прокси в любой момент. Когда выделенный прокси выключен, сохраняется прежний режим работы через основной VPN.
+- Поле ввода скрывает учётные данные по умолчанию (с кнопкой показа), в статусе отображается только host:port. DNS для доменов Antigravity резолвится по DoH через указанный HTTP-прокси, UDP/QUIC для Antigravity отклоняется для мгновенного перехода на TCP, а проверка соединения работает и без VPN с распознаванием ошибки авторизации HTTP 407.
+
+English: added a dedicated HTTP(S) proxy option on the Windows "Antigravity" tab — enter a proxy in user:pass@host:port (or http://, https://, host:port) format and Antigravity traffic routes through it automatically on app launch, even while the main VPN is off. It stays completely independent when the main VPN is connected (Antigravity uses its HTTP proxy while the rest of the system uses your VPN server), can be edited or disabled at any time, and falls back to the main VPN when turned off. Credentials are masked by default with a visibility toggle and only host:port is shown in the status tile. Antigravity DNS resolves over DoH through the HTTP proxy, UDP/QUIC is rejected for immediate TCP fallback, and the connection check now works without VPN and detects HTTP 407 authentication errors.
+
 ## 1.0.23
 
 - Поддержка Antigravity на Windows, по умолчанию выключена: переключатель в настройках добавляет вкладку «Antigravity» и направляет через VPN домены Antigravity (cloudcode-pa.googleapis.com, daily-cloudcode-pa.googleapis.com, aicode.googleapis.com), их DNS и процессы Antigravity.exe, agy.exe и language_server — Language Server часто игнорирует системный прокси, поэтому всё идёт через туннель. Свои правила на странице «Маршруты» имеют приоритет над встроенными.
