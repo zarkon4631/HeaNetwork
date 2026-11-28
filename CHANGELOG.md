@@ -3,6 +3,13 @@
 Раздел версии публикуется как описание релиза и показывается в приложении
 в блоке «Что нового», поэтому здесь простой текст без оформления.
 
+## 1.0.23
+
+- Поддержка Antigravity на Windows, по умолчанию выключена: переключатель в настройках добавляет вкладку «Antigravity» и направляет через VPN домены Antigravity (cloudcode-pa.googleapis.com, daily-cloudcode-pa.googleapis.com, aicode.googleapis.com), их DNS и процессы Antigravity.exe, agy.exe и language_server — Language Server часто игнорирует системный прокси, поэтому всё идёт через туннель. Свои правила на странице «Маршруты» имеют приоритет над встроенными.
+- На вкладке — статус маршрутизации и проверка соединения: HTTPS-запрос через ваш текущий VPN-сервер без данных аккаунта, с распознаванием ответа «регион не поддерживается». Сетевой режим не обходит клиентскую проверку ineligible: при региональном отказе выберите сервер в поддерживаемой стране и переподключитесь. Language Server может не использовать системный прокси — выберите режим «VPN (весь трафик)» и переподключитесь.
+
+English: added opt-in Antigravity support for Windows — a Settings switch reveals an "Antigravity" tab and routes Antigravity domains (cloudcode-pa.googleapis.com, daily-cloudcode-pa.googleapis.com, aicode.googleapis.com), their DNS, and the Antigravity.exe / agy.exe / language_server processes through the VPN; the Language Server often ignores the system proxy, so everything goes through the tunnel. Your own Routing rules take priority over the built-in ones. The tab shows routing status and a connection check — an HTTPS request through your current VPN server with no account data, recognizing the "unsupported location" refusal. Network mode does not bypass the client-side ineligible check: on a location error, pick a server in a supported country and reconnect. The Language Server may ignore the system proxy — select "VPN (all traffic)" mode and reconnect.
+
 ## 1.0.22
 
 - Подсветка ключевых данных в SSH-терминале как в Termius: IPv4 и MAC-адреса автоматически выделяются розовым, ошибки и отказы (Error, Fail, Denied, Timeout и др.) — красным, предупреждения и статусы (Yes, Warning, OK, Active и др.) — жёлтым, даже в обычном нераскрашенном выводе и при наборе команд. Серверные ANSI-цвета и полноэкранные приложения (vim, htop, nano) не затрагиваются; подсветку можно включать и отключать кнопкой на панели SSH.
