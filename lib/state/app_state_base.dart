@@ -24,6 +24,18 @@ import 'app_paths.dart';
 /// Thrown by [AppState.connect] when TUN mode needs administrator rights.
 class ElevationRequired implements Exception {}
 
+/// What the running core is currently serving.
+enum CoreRole {
+  /// The core is stopped.
+  none,
+
+  /// Main VPN connection (may also carry the dedicated Antigravity HTTP proxy).
+  vpn,
+
+  /// Standalone Antigravity-only TUN while the main VPN stays disconnected.
+  antigravity,
+}
+
 /// How restoring a backup copy ended.
 enum BackupRestore {
   ok,
@@ -167,7 +179,13 @@ abstract class AppStateBase extends ChangeNotifier {
   /// implemented by the connection facet.
   List<ProxyProfile> profilesOf(String? subscriptionId);
 
-  CoreStatus get status => core.status;
+  /// What the running core is currently serving.
+  CoreRole coreRole = CoreRole.none;
+
+  /// The status of the main VPN connection. While the core runs only for the
+  /// standalone Antigravity HTTP proxy, the main VPN remains stopped.
+  CoreStatus get status =>
+      coreRole == CoreRole.antigravity ? CoreStatus.stopped : core.status;
 
   /// Shown on the home screen until the next connection attempt: the core's
   /// own words, or one of the two markers above, which the screen puts into
@@ -198,7 +216,9 @@ abstract class AppStateBase extends ChangeNotifier {
   ConnectionMode? get activeMode;
 
   /// Drops the live connection; the connection facet implements it.
-  Future<void> disconnect();
+  /// When [keepAntigravity] is true and a dedicated Antigravity HTTP proxy is
+  /// enabled, the core transitions back to standalone Antigravity mode.
+  Future<void> disconnect({bool keepAntigravity = true});
 
   /// Looks for a newer release; the updates facet implements it.
   Future<void> checkForUpdate({bool silent = false});

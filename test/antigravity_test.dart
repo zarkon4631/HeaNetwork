@@ -8,6 +8,10 @@ import 'package:heanetwork/core/config/config_builder.dart';
 import 'package:heanetwork/core/models/settings.dart';
 import 'package:heanetwork/core/parsers/import_parser.dart';
 import 'package:heanetwork/core/services/antigravity_check.dart';
+import 'package:heanetwork/core/services/core_controller.dart';
+import 'package:heanetwork/platform/windows/elevation.dart';
+import 'package:heanetwork/platform/windows/system_proxy.dart';
+import 'package:heanetwork/state/app_state.dart';
 import 'package:heanetwork/ui/shell.dart';
 
 import 'fixtures.dart';
@@ -50,9 +54,13 @@ bool hasDomain(Map<String, dynamic> rule) =>
 
 class _RealHttpOverrides extends HttpOverrides {}
 
-Future<AntigravityCheckResult> check(Uri uri, {int? proxyPort}) =>
+Future<AntigravityCheckResult> check(
+  Uri uri, {
+  int? proxyPort,
+  AntigravityProxy? httpProxy,
+}) =>
     HttpOverrides.runWithHttpOverrides(
-      () => checkAntigravity(uri, proxyPort: proxyPort),
+      () => checkAntigravity(uri, proxyPort: proxyPort, httpProxy: httpProxy),
       _RealHttpOverrides(),
     );
 
@@ -279,6 +287,403 @@ void main() {
         File('${state.paths.data.path}/settings.json').readAsStringSync(),
       );
       expect(saved['antigravityEnabled'], isTrue);
+    });
+
+    testWidgets(
+      'dedicated HTTP proxy input is obscured by default and connects without VPN',
+      (tester) async {
+        tester.view.physicalSize = const Size(1200, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final core = FakeCore();
+        final state = makeState(core: core, elevated: true);
+        state.settings
+          ..locale = 'ru'
+          ..mode = ConnectionMode.tun
+          ..antigravityEnabled = true;
+
+        await tester.pumpWidget(
+          HeaApp(
+            state: state,
+            home: const Shell(initialTab: ShellTab.antigravity),
+          ),
+        );
+        await tester.pump();
+
+        final fieldFinder = find.byType(TextField);
+        expect(tester.widget<TextField>(fieldFinder).obscureText, isTrue);
+
+        // Toggle visibility on and back off.
+        await tester.tap(find.byIcon(Icons.visibility_outlined));
+        await tester.pump();
+        expect(tester.widget<TextField>(fieldFinder).obscureText, isFalse);
+        await tester.tap(find.byIcon(Icons.visibility_off_outlined));
+        await tester.pump();
+        expect(tester.widget<TextField>(fieldFinder).obscureText, isTrue);
+
+        const sample = 'u_9mhu5cgofh:qnpyoqw53h78yp36@111.11.123.11:2443';
+        await tester.enterText(fieldFinder, sample);
+        await tester.pump();
+        final connectBtn = find.text('Подключить');
+        await tester.ensureVisible(connectBtn);
+        await tester.pump();
+        await tester.tap(connectBtn);
+        await tester.pump();
+        for (var i = 0; i < 40 && !state.antigravityProxyRunning; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 15)),
+          );
+          await tester.pump();
+        }
+        await tester.runAsync(() => state.store.flush());
+        await tester.pump();
+
+        expect(state.antigravityProxyRunning, isTrue,
+            reason: 'error=${state.antigravityError}, role=${state.coreRole}, core=${core.status}');
+        expect(state.isConnected, isFalse);
+        expect(find.text('HTTP-прокси подключён'), findsOneWidget);
+        expect(find.text('111.11.123.11:2443 · без VPN'), findsOneWidget);
+        // Credentials must never appear in any status tile.
+        expect(
+          find.descendant(
+            of: find.byType(ListTile),
+            matching: find.textContaining('qnpyoqw53h78yp36'),
+          ),
+          findsNothing,
+        );
+
+        final disconnectBtn = find.text('Отключить');
+        await tester.ensureVisible(disconnectBtn);
+        await tester.pump();
+        await tester.tap(disconnectBtn);
+        await tester.pump();
+        for (var i = 0; i < 40 && core.status != CoreStatus.stopped; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 15)),
+          );
+          await tester.pump();
+        }
+        await tester.runAsync(() => state.store.flush());
+        await tester.pump();
+        expect(state.antigravityProxyRunning, isFalse);
+        expect(core.status, CoreStatus.stopped);
+        expect(find.text('VPN не подключён'), findsOneWidget);
+      },
+    );
+  });
+
+  group('Antigravity dedicated HTTP proxy', () {
+    const sample = 'u_9mhu5cgofh:qnpyoqw53h78yp36@111.11.123.11:2443';
+
+    test('parses supported HTTP(S) proxy formats and rejects invalid input', () {
+      final bare = AntigravityProxy.tryParse(sample)!;
+      expect(bare.host, '111.11.123.11');
+      expect(bare.port, 2443);
+      expect(bare.username, 'u_9mhu5cgofh');
+      expect(bare.password, 'qnpyoqw53h78yp36');
+      expect(bare.tls, isFalse);
+      expect(bare.endpoint, '111.11.123.11:2443');
+      expect(bare.raw, sample);
+      expect(bare.toOutbound(tag: tagAntigravityProxy), {
+        'type': 'http',
+        'tag': tagAntigravityProxy,
+        'server': '111.11.123.11',
+        'server_port': 2443,
+        'username': 'u_9mhu5cgofh',
+        'password': 'qnpyoqw53h78yp36',
+      });
+
+      final https = AntigravityProxy.tryParse(
+        'https://user:p%40ss:word@proxy.example.com/',
+      )!;
+      expect(https.host, 'proxy.example.com');
+      expect(https.port, 443);
+      expect(https.username, 'user');
+      expect(https.password, 'p@ss:word');
+      expect(https.tls, isTrue);
+      expect(https.endpoint, 'https://proxy.example.com:443');
+      expect(https.toOutbound(tag: tagAntigravityProxy)['tls'], {
+        'enabled': true,
+        'server_name': 'proxy.example.com',
+      });
+
+      final noAuth = AntigravityProxy.tryParse('10.0.0.5:8080')!;
+      expect(noAuth.username, isEmpty);
+      expect(noAuth.password, isEmpty);
+      expect(noAuth.endpoint, '10.0.0.5:8080');
+
+      final ipv6 = AntigravityProxy.tryParse('u:p@[2001:db8::1]:3128')!;
+      expect(ipv6.host, '2001:db8::1');
+      expect(ipv6.port, 3128);
+      expect(ipv6.endpoint, '[2001:db8::1]:3128');
+
+      for (final bad in [
+        '',
+        '   ',
+        '111.11.123.11',
+        'socks5://u:p@111.11.123.11:1080',
+        '111.11.123.11:0',
+        '111.11.123.11:70000',
+        '111.11.123.11:abc',
+        'user:pass@:2443',
+      ]) {
+        expect(AntigravityProxy.tryParse(bad), isNull, reason: bad);
+      }
+    });
+
+    test('settings persist antigravityProxy and antigravityProxyEnabled', () {
+      final settings = AppSettings();
+      expect(settings.toJson().containsKey('antigravityProxy'), isFalse);
+      expect(settings.toJson().containsKey('antigravityProxyEnabled'), isFalse);
+      settings
+        ..antigravityEnabled = true
+        ..antigravityProxy = sample
+        ..antigravityProxyEnabled = true;
+      final restored = AppSettings.fromJson(settings.toJson());
+      expect(restored.antigravityProxy, sample);
+      expect(restored.antigravityProxyEnabled, isTrue);
+      expect(restored.hasActiveAntigravityProxy, isTrue);
+    });
+
+    test('standalone and hybrid configs are accepted by the real core', () async {
+      final core = File(
+        Platform.environment['HEA_CORE'] ??
+            '${Directory.current.path}\\.cache\\core\\sing-box.exe',
+      );
+      if (!core.existsSync()) {
+        markTestSkipped('core not found');
+        return;
+      }
+      final dir = Directory.systemTemp.createTempSync('hea_ag_proxy_core_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final env = BuildEnv(
+        platform: CorePlatform.windows,
+        ruleSetDir: dir.path,
+        cacheFile: '${dir.path}/cache.db',
+        clashPort: 19192,
+        clashSecret: 's',
+        elevated: true,
+        corePath: core.path,
+        ruleSets: const {},
+      );
+      final proxy = AntigravityProxy.tryParse(sample)!;
+      final settings = AppSettings(
+        antigravityEnabled: true,
+        antigravityProxy: sample,
+        antigravityProxyEnabled: true,
+        mode: ConnectionMode.tun,
+        fakeIp: true,
+      );
+
+      Future<void> checkWithCore(String name, Map<String, dynamic> cfg) async {
+        final file = File('${dir.path}/$name.json')
+          ..writeAsStringSync(jsonEncode(cfg));
+        final result = await Process.run(core.path, [
+          'check',
+          '-c',
+          file.path,
+          '-D',
+          dir.path,
+        ]);
+        expect(result.exitCode, 0, reason: '$name: ${result.stderr}');
+      }
+
+      // 1. Standalone Antigravity-only TUN config (main VPN off).
+      final standalone = buildAntigravityProxyConfig(
+        proxy: proxy,
+        settings: settings,
+        env: env,
+      );
+      expect((standalone['route'] as Map)['final'], tagDirect);
+      expect(
+        ((standalone['inbounds'] as List).first as Map)['strict_route'],
+        isFalse,
+      );
+      expect(
+        rulesOf(standalone, 'route').any(
+          (r) => r['outbound'] == tagAntigravityProxy && hasDomain(r),
+        ),
+        isTrue,
+      );
+      expect(
+        rulesOf(standalone, 'dns').singleWhere(hasDomain)['server'],
+        tagDnsAntigravity,
+      );
+      await checkWithCore('standalone', standalone);
+
+      // 2. Hybrid TUN VPN + dedicated Antigravity HTTP proxy.
+      final hybridTun = buildConfig(
+        profile: parseLink(sampleLinks['vless-reality-vision']!),
+        settings: settings,
+        routing: RoutingSettings(),
+        env: env,
+      );
+      final outTags = (hybridTun['outbounds'] as List)
+          .cast<Map<String, dynamic>>()
+          .map((o) => o['tag'])
+          .toList();
+      expect(outTags, containsAll([tagProxy, tagAntigravityProxy, tagDirect]));
+      expect(
+        rulesOf(hybridTun, 'route').singleWhere(
+          (r) => hasDomain(r) && r['action'] == 'route',
+        )['outbound'],
+        tagAntigravityProxy,
+      );
+      await checkWithCore('hybrid_tun', hybridTun);
+
+      // 3. Hybrid System Proxy VPN + Antigravity-only TUN (elevated).
+      final sysSettings = AppSettings.fromJson(settings.toJson())
+        ..mode = ConnectionMode.systemProxy;
+      final hybridSys = buildConfig(
+        profile: parseLink(sampleLinks['vless-reality-vision']!),
+        settings: sysSettings,
+        routing: RoutingSettings(),
+        env: env,
+      );
+      final inbounds = (hybridSys['inbounds'] as List).cast<Map<String, dynamic>>();
+      expect(inbounds.any((i) => i['type'] == 'mixed'), isTrue);
+      expect(inbounds.any((i) => i['type'] == 'tun' && i['strict_route'] == false), isTrue);
+      expect(
+        rulesOf(hybridSys, 'route').any(
+          (r) => r['inbound'] == 'tun-in' && r['outbound'] == tagDirect,
+        ),
+        isTrue,
+      );
+      await checkWithCore('hybrid_sys', hybridSys);
+    }, testOn: 'windows');
+
+    test('authenticates HTTP proxy and detects 407 auth failure', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final expectedAuth = 'Basic ${base64Encode(utf8.encode('u1:p1'))}';
+      server.listen((request) {
+        final auth = request.headers.value(HttpHeaders.proxyAuthorizationHeader);
+        if (auth != expectedAuth) {
+          request.response
+            ..statusCode = HttpStatus.proxyAuthenticationRequired
+            ..headers.set(
+              HttpHeaders.proxyAuthenticateHeader,
+              'Basic realm="Proxy"',
+            );
+          request.response.close();
+          return;
+        }
+        request.response
+          ..statusCode = 200
+          ..close();
+      });
+
+      final good = await check(
+        Uri.parse('http://antigravity.invalid/'),
+        httpProxy: AntigravityProxy(
+          host: '127.0.0.1',
+          port: server.port,
+          username: 'u1',
+          password: 'p1',
+        ),
+      );
+      expect(good.reachable, isTrue);
+      expect(good.statusCode, 200);
+      expect(good.proxyAuthFailed, isFalse);
+
+      final bad = await check(
+        Uri.parse('http://antigravity.invalid/'),
+        httpProxy: AntigravityProxy(
+          host: '127.0.0.1',
+          port: server.port,
+          username: 'u1',
+          password: 'wrong',
+        ),
+      );
+      expect(bad.reachable, isFalse);
+      expect(bad.proxyAuthFailed, isTrue);
+    });
+
+    test('auto-starts on init without VPN and stays independent of VPN toggle', () async {
+      final core = FakeCore();
+      final state = makeState(core: core, elevated: true);
+      state.settings
+        ..mode = ConnectionMode.tun
+        ..antigravityEnabled = true
+        ..antigravityProxy = sample
+        ..antigravityProxyEnabled = true;
+
+      // Launch: standalone Antigravity starts immediately while main VPN stays OFF.
+      await state.init();
+      expect(state.antigravityProxyRunning, isTrue);
+      expect(state.antigravityStandaloneRunning, isTrue);
+      expect(state.isConnected, isFalse);
+      expect(state.status, CoreStatus.stopped);
+      expect((core.lastConfig!['route'] as Map)['final'], tagDirect);
+
+      // Connect main VPN: upgrades cleanly to hybrid config carrying both outbounds.
+      await state.connect();
+      expect(state.isConnected, isTrue);
+      expect(state.status, CoreStatus.running);
+      expect(state.antigravityProxyRunning, isTrue);
+      expect(state.antigravityStandaloneRunning, isFalse);
+      final outTags = (core.lastConfig!['outbounds'] as List)
+          .cast<Map<String, dynamic>>()
+          .map((o) => o['tag'])
+          .toList();
+      expect(outTags, containsAll([tagProxy, tagAntigravityProxy]));
+
+      // Disconnect main VPN: automatically returns to standalone Antigravity.
+      await state.disconnect();
+      expect(state.isConnected, isFalse);
+      expect(state.status, CoreStatus.stopped);
+      expect(state.antigravityProxyRunning, isTrue);
+      expect(state.antigravityStandaloneRunning, isTrue);
+      expect((core.lastConfig!['route'] as Map)['final'], tagDirect);
+
+      // App exit (keepAntigravity: false): tears down core completely.
+      await state.disconnect(keepAntigravity: false);
+      expect(state.antigravityProxyRunning, isFalse);
+      expect(core.status, CoreStatus.stopped);
+    });
+
+    test('elevation policy requests admin rights when Antigravity proxy is active', () {
+      final settings = AppSettings(
+        mode: ConnectionMode.systemProxy,
+        antigravityEnabled: true,
+        antigravityProxy: sample,
+        antigravityProxyEnabled: true,
+      );
+      expect(
+        shouldElevateOnLaunch(
+          settings: settings,
+          elevated: false,
+          args: const [],
+        ),
+        isTrue,
+      );
+      expect(
+        shouldElevateOnLaunch(
+          settings: settings,
+          elevated: false,
+          args: const [Autostart.flag],
+        ),
+        isTrue,
+      );
+      expect(
+        shouldElevateOnLaunch(
+          settings: settings,
+          elevated: true,
+          args: const [],
+        ),
+        isFalse,
+      );
+    });
+
+    test('without elevation saves proxy and throws ElevationRequired', () async {
+      final state = makeState(elevated: false);
+      state.settings.antigravityEnabled = true;
+      await expectLater(
+        state.applyAntigravityProxy(sample, enabled: true),
+        throwsA(isA<ElevationRequired>()),
+      );
+      expect(state.settings.antigravityProxy, sample);
+      expect(state.settings.antigravityProxyEnabled, isTrue);
     });
   });
 }

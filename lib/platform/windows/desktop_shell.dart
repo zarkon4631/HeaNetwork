@@ -160,7 +160,7 @@ class DesktopShell with WindowListener, TrayListener {
   }
 
   Future<void> quit() async {
-    await state.disconnect();
+    await state.disconnect(keepAntigravity: false);
     await state.store.flush();
     try {
       await trayManager.destroy();

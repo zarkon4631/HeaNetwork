@@ -233,8 +233,7 @@ class SettingsPage extends StatelessWidget {
                   title: Text(s.antigravityFeatureTitle),
                   subtitle: Text(s.antigravityFeatureHint),
                   value: st.antigravityEnabled,
-                  onChanged: (v) =>
-                      state.updateSettings((x) => x.antigravityEnabled = v),
+                  onChanged: state.setAntigravityEnabled,
                 ),
               ],
               SwitchListTile(

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import '../models/panel_routing.dart';
 import '../models/profile.dart';
@@ -60,9 +61,37 @@ class BuildEnv {
 
 const tagProxy = 'proxy';
 const tagDirect = 'direct';
+const tagAntigravityProxy = 'antigravity-proxy';
 const tagDnsRemote = 'dns-remote';
 const tagDnsDirect = 'dns-direct';
 const tagDnsFake = 'dns-fake';
+const tagDnsAntigravity = 'dns-antigravity';
+
+/// DoH endpoint used for Antigravity DNS when routing through an HTTP proxy.
+/// HTTP proxies cannot carry UDP, and many block CONNECT on port 53; HTTPS on
+/// port 443 passes through standard HTTP proxies reliably.
+const antigravityDohFallback = 'https://8.8.8.8/dns-query';
+
+/// The DoH spec used for Antigravity when a dedicated HTTP proxy is active.
+String antigravityDnsSpec(String remoteDns) {
+  final trimmed = remoteDns.trim();
+  return trimmed.toLowerCase().startsWith('https://')
+      ? trimmed
+      : antigravityDohFallback;
+}
+
+Map<String, dynamic> _antigravityDnsServer(String remoteDns) {
+  final server = dnsServer(
+    antigravityDnsSpec(remoteDns),
+    tagDnsAntigravity,
+    detour: tagAntigravityProxy,
+  );
+  final host = server['server'] as String?;
+  if (host != null && InternetAddress.tryParse(host) == null) {
+    server['domain_resolver'] = tagDnsDirect;
+  }
+  return server;
+}
 
 const ruleSetRuSite = 'geosite-category-ru';
 const ruleSetRuIp = 'geoip-ru';
@@ -320,6 +349,8 @@ Map<String, dynamic> buildConfig({
     // To the core a WireGuard server is an endpoint, the rest are outbounds.
     'outbounds': [
       if (!profile.isEndpoint) proxy,
+      if (plan.antigravityProxy != null)
+        plan.antigravityProxy!.toOutbound(tag: tagAntigravityProxy),
       {'type': 'direct', 'tag': tagDirect},
     ],
     if (profile.isEndpoint) 'endpoints': [proxy],
@@ -361,7 +392,18 @@ class _Plan {
   bool get isAndroid => env.platform == CorePlatform.android;
   bool get antigravity =>
       settings.antigravityEnabled && env.platform == CorePlatform.windows;
+  late final AntigravityProxy? antigravityProxy =
+      antigravity && settings.antigravityProxyEnabled
+          ? settings.parsedAntigravityProxy
+          : null;
+  bool get antigravityUsesProxy => antigravityProxy != null;
   late final bool tun = isAndroid || settings.mode == ConnectionMode.tun;
+
+  /// When the main VPN runs in system-proxy mode while a dedicated Antigravity
+  /// HTTP proxy is active (and we have admin rights), add a TUN inbound that
+  /// only captures Antigravity and sends everything else out directly.
+  late final bool antigravityNeedsTun =
+      antigravityUsesProxy && !tun && env.elevated;
   late final bool useFakeIp = settings.fakeIp && tun;
   late final AntiDpiSettings antiDpi = settings.antiDpi.effective;
 
@@ -439,7 +481,8 @@ class _Plan {
           'listen': settings.allowLan ? '0.0.0.0' : '127.0.0.1',
           'listen_port': env.mixedPort ?? settings.mixedPort,
         },
-        if (tun) _tunInbound(),
+        if (tun || antigravityNeedsTun)
+          _tunInbound(strictRoute: tun && settings.strictRoute),
         for (final f in forwards)
           {
             'type': 'direct',
@@ -451,7 +494,7 @@ class _Plan {
           },
       ];
 
-  Map<String, dynamic> _tunInbound() {
+  Map<String, dynamic> _tunInbound({required bool strictRoute}) {
     final t = <String, dynamic>{
       'type': 'tun',
       'tag': 'tun-in',
@@ -459,7 +502,7 @@ class _Plan {
       // route rule when disabled.
       'address': [tunAddress4, 'fdfe:dcba:9877::1/126'],
       'auto_route': true,
-      'strict_route': settings.strictRoute,
+      'strict_route': strictRoute,
       'stack': settings.tunStack,
       if (settings.tunMtu > 0) 'mtu': settings.tunMtu,
     };
@@ -501,7 +544,8 @@ class _Plan {
         'action': 'hijack-dns',
       },
       {'ip_is_private': true, 'action': 'route', 'outbound': tagDirect},
-      if (!settings.ipv6 && tun) {'ip_version': 6, 'action': 'reject'},
+      if (!settings.ipv6 && (tun || antigravityNeedsTun))
+        {'ip_version': 6, 'action': 'reject'},
       for (final f in forwards)
         {
           'inbound': 'fwd-${f.id}',
@@ -529,11 +573,42 @@ class _Plan {
     }
 
     if (antigravity) {
-      rules.add({
-        'process_path_regex': [antigravityProcessPattern],
-        ...routeTo(RouteAction.proxy),
-      });
-      rules.add({'domain': antigravityDomains, ...routeTo(RouteAction.proxy)});
+      if (antigravityUsesProxy) {
+        // An HTTP proxy cannot carry UDP (e.g. QUIC/HTTP3); rejecting UDP
+        // makes Electron and Go fall back to TCP TLS over CONNECT immediately.
+        rules.add({
+          'network': 'udp',
+          'process_path_regex': [antigravityProcessPattern],
+          'action': 'reject',
+        });
+        rules.add({
+          'network': 'udp',
+          'domain': antigravityDomains,
+          'action': 'reject',
+        });
+        rules.add({
+          'process_path_regex': [antigravityProcessPattern],
+          'action': 'route',
+          'outbound': tagAntigravityProxy,
+        });
+        rules.add({
+          'domain': antigravityDomains,
+          'action': 'route',
+          'outbound': tagAntigravityProxy,
+        });
+      } else {
+        rules.add({
+          'process_path_regex': [antigravityProcessPattern],
+          ...routeTo(RouteAction.proxy),
+        });
+        rules.add({'domain': antigravityDomains, ...routeTo(RouteAction.proxy)});
+      }
+    }
+
+    if (antigravityNeedsTun) {
+      // Main VPN is in system-proxy mode: TUN only exists for Antigravity, so
+      // all other traffic arriving on tun-in must leave directly.
+      rules.add({'inbound': 'tun-in', 'action': 'route', 'outbound': tagDirect});
     }
 
     // The panel's rules come after the user's own, which therefore win.
@@ -601,6 +676,7 @@ class _Plan {
     final servers = <Map<String, dynamic>>[
       dnsServer(settings.remoteDns, tagDnsRemote,
           detour: tagProxy, preferTcp: !proxyCarriesUdp),
+      if (antigravityUsesProxy) _antigravityDnsServer(settings.remoteDns),
       dnsServer(settings.directDns, tagDnsDirect),
     ];
     final rules = <Map<String, dynamic>>[];
@@ -619,7 +695,17 @@ class _Plan {
       rules.add({
         'domain': antigravityDomains,
         'action': 'route',
-        'server': tagDnsRemote,
+        'server': antigravityUsesProxy ? tagDnsAntigravity : tagDnsRemote,
+      });
+    }
+
+    if (antigravityNeedsTun) {
+      // In system-proxy + Antigravity-TUN mode, OS DNS queries on tun-in
+      // other than Antigravity resolve directly, as without a TUN VPN.
+      rules.add({
+        'inbound': 'tun-in',
+        'action': 'route',
+        'server': tagDnsDirect,
       });
     }
 
@@ -652,7 +738,13 @@ class _Plan {
         'inet4_range': '198.18.0.0/15',
         'inet6_range': 'fc00::/18',
       });
-      final own = serverDomains.where((d) => d.isNotEmpty).toSet().toList()..sort();
+      final own = {
+        ...serverDomains.where((d) => d.isNotEmpty),
+        if (antigravityProxy != null &&
+            InternetAddress.tryParse(antigravityProxy!.host) == null)
+          antigravityProxy!.host,
+      }.toList()
+        ..sort();
       if (own.isNotEmpty) {
         rules.add({'domain': own, 'action': 'route', 'server': tagDnsDirect});
       }
@@ -664,6 +756,111 @@ class _Plan {
     }
     return (servers: servers, rules: rules);
   }
+}
+
+/// Builds a lightweight Windows TUN config that routes only Antigravity
+/// traffic through [proxy] while sending everything else out directly.
+///
+/// Used when the main VPN is disconnected so Antigravity works right on launch
+/// without turning on the main VPN or touching Antigravity files.
+Map<String, dynamic> buildAntigravityProxyConfig({
+  required AntigravityProxy proxy,
+  required AppSettings settings,
+  required BuildEnv env,
+}) {
+  return {
+    'log': {
+      'level': settings.logLevel,
+      'timestamp': true,
+      'output': ?env.logFile,
+    },
+    'dns': {
+      'servers': [
+        _antigravityDnsServer(settings.remoteDns),
+        dnsServer(settings.directDns, tagDnsDirect),
+      ],
+      'rules': [
+        {
+          'domain': antigravityDomains,
+          'action': 'route',
+          'server': tagDnsAntigravity,
+        },
+      ],
+      'final': tagDnsDirect,
+      'strategy': settings.ipv6 ? 'prefer_ipv4' : 'ipv4_only',
+    },
+    'inbounds': [
+      {
+        'type': 'tun',
+        'tag': 'tun-in',
+        'address': [tunAddress4, 'fdfe:dcba:9877::1/126'],
+        'auto_route': true,
+        'strict_route': false,
+        'stack': settings.tunStack,
+        if (settings.tunMtu > 0) 'mtu': settings.tunMtu,
+      },
+    ],
+    'outbounds': [
+      proxy.toOutbound(tag: tagAntigravityProxy),
+      {'type': 'direct', 'tag': tagDirect},
+    ],
+    'route': {
+      'rules': [
+        {'action': 'sniff'},
+        {
+          'type': 'logical',
+          'mode': 'or',
+          'rules': [
+            {'protocol': 'dns'},
+            {'port': 53},
+          ],
+          'action': 'hijack-dns',
+        },
+        {'ip_is_private': true, 'action': 'route', 'outbound': tagDirect},
+        if (!settings.ipv6) {'ip_version': 6, 'action': 'reject'},
+        if (env.platform == CorePlatform.windows && env.corePath != null)
+          {
+            'process_path': [env.corePath],
+            'action': 'route',
+            'outbound': tagDirect,
+          },
+        {
+          'network': 'udp',
+          'process_path_regex': [antigravityProcessPattern],
+          'action': 'reject',
+        },
+        {
+          'network': 'udp',
+          'domain': antigravityDomains,
+          'action': 'reject',
+        },
+        {
+          'process_path_regex': [antigravityProcessPattern],
+          'action': 'route',
+          'outbound': tagAntigravityProxy,
+        },
+        {
+          'domain': antigravityDomains,
+          'action': 'route',
+          'outbound': tagAntigravityProxy,
+        },
+      ],
+      'final': tagDirect,
+      'auto_detect_interface': true,
+      'default_domain_resolver': tagDnsDirect,
+      'find_process': true,
+    },
+    'experimental': {
+      'cache_file': {
+        'enabled': true,
+        'path': env.cacheFile,
+      },
+      'clash_api': {
+        'external_controller': '127.0.0.1:${env.clashPort}',
+        'secret': env.clashSecret,
+      },
+    },
+  };
 }
 
 /// A config with no inbounds whose only job is to expose [profiles] to the

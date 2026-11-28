@@ -22,10 +22,14 @@ bool shouldElevateOnLaunch({
   required bool elevated,
   required List<String> args,
 }) {
-  if (elevated || settings.mode != ConnectionMode.tun) return false;
+  final needsTun =
+      settings.mode == ConnectionMode.tun || settings.hasActiveAntigravityProxy;
+  if (elevated || !needsTun) return false;
   // Never ask twice in a row should the rights somehow not have arrived.
   if (args.contains(elevatedFlag)) return false;
-  if (args.contains(Autostart.flag)) return settings.autoConnect;
+  if (args.contains(Autostart.flag)) {
+    return settings.autoConnect || settings.hasActiveAntigravityProxy;
+  }
   return true;
 }
 

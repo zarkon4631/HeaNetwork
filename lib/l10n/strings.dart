@@ -532,36 +532,63 @@ class S {
   // ---- Antigravity (Windows only, opt-in)
   String get antigravityFeatureTitle => _t('Antigravity', 'Antigravity');
   String get antigravityFeatureHint => _t(
-      'Показывает вкладку и направляет домены, DNS и Language Server через VPN. Нужен режим VPN',
-      'Shows a tab and routes Antigravity domains, DNS and Language Server through the VPN. Requires VPN mode');
+      'Показывает вкладку для маршрутизации Antigravity через свой HTTP-прокси (даже без VPN) или через VPN',
+      'Shows a tab to route Antigravity through a dedicated HTTP proxy (even without VPN) or through the VPN');
   String get antigravityStatus => _t('Доступ к Antigravity', 'Antigravity access');
   String get antigravityStatusHint => _t(
-      'Через ваш текущий VPN-сервер, без сторонних релеев, сертификатов и изменения файлов Antigravity',
-      'Through your current VPN server, without third-party relays, certificates or changes to Antigravity files');
+      'Через выделенный HTTP-прокси (даже без VPN) или текущий VPN-сервер, без изменения файлов Antigravity',
+      'Through a dedicated HTTP proxy (even without VPN) or your current VPN server, without modifying Antigravity files');
   String get antigravityRoutingActive => _t('Маршрутизация включена', 'Routing is active');
+  String get antigravityProxyActive => _t('HTTP-прокси подключён', 'HTTP proxy is active');
+  String get antigravityProxyConnecting => _t('Подключение HTTP-прокси…', 'Connecting HTTP proxy…');
+  String get antigravityProxyStopped => _t('HTTP-прокси отключён', 'HTTP proxy is off');
+  String get antigravityProxyError => _t('Ошибка HTTP-прокси', 'HTTP proxy error');
+  String get antigravityProxyStandalone => _t('без VPN', 'without VPN');
+  String get antigravityProxyWithVpn => _t('независимо от VPN', 'independent of VPN');
+  String get antigravityProxySection => _t('HTTP-прокси для Antigravity', 'HTTP proxy for Antigravity');
+  String get antigravityProxySectionHint => _t(
+      'Работает сразу при запуске приложения и не пересекается с основным VPN. Оставьте выключенным для работы через VPN',
+      'Starts automatically with the app and stays independent of the main VPN. Leave off to fall back to the main VPN');
+  String get antigravityProxyLabel => _t('HTTP-прокси', 'HTTP proxy');
+  String get antigravityProxyHint => _t('user:pass@host:port', 'user:pass@host:port');
+  String get antigravityProxyInvalid => _t(
+      'Неверный формат. Пример: user:pass@1.2.3.4:8080',
+      'Invalid format. Example: user:pass@1.2.3.4:8080');
+  String get antigravityProxyConnect => _t('Подключить', 'Connect');
+  String get antigravityProxyApply => _t('Применить', 'Apply');
+  String get antigravityProxyDisconnect => _t('Отключить', 'Disconnect');
+  String get antigravityProxyClear => _t('Очистить', 'Clear');
+  String get antigravityShowProxy => _t('Показать', 'Show');
+  String get antigravityHideProxy => _t('Скрыть', 'Hide');
+  String get antigravityNeedAdminHint => _t(
+      'Для перехвата трафика Antigravity без изменения его настроек нужны права администратора.',
+      'Administrator rights are needed to route Antigravity traffic transparently without editing its settings.');
+  String get antigravityActionProxy => _t('HTTP-прокси', 'HTTP proxy');
   String get antigravityDisconnected => _t('VPN не подключён', 'VPN is disconnected');
   String get antigravityConnectHint => _t(
-      'Подключите VPN на главной странице. Правила применятся автоматически.',
-      'Connect to the VPN on the Home page. The rules will apply automatically.');
+      'Введите HTTP-прокси ниже (работает без VPN) или подключите VPN на главной странице.',
+      'Enter an HTTP proxy below (works without VPN) or connect to the VPN on the Home page.');
   String get antigravityTunHint => _t(
       'Language Server может не использовать системный прокси. Выберите режим «VPN (весь трафик)» и переподключитесь.',
       'Language Server may ignore the system proxy. Select “VPN (all traffic)” mode and reconnect.');
-  String get antigravityRoutes => _t('Что идёт через VPN', 'What uses the VPN');
+  String get antigravityRoutes => _t('Что маршрутизируется', 'What is routed');
   String get antigravityRoutesHint => _t(
-      'Ваши собственные правила на странице «Маршруты» имеют приоритет',
-      'Your own rules on the Routing page take priority');
+      'При работе через VPN ваши правила на странице «Маршруты» имеют приоритет',
+      'When using the main VPN, your own rules on the Routing page take priority');
   String get antigravityDns => _t('DNS для этих доменов', 'DNS for these domains');
   String get antigravityCheckTitle => _t('Проверка соединения', 'Connection check');
   String get antigravityCheckHint => _t(
-      'HTTPS-запрос через текущий VPN без данных аккаунта. Любой HTTP-ответ подтверждает соединение, но не работоспособность модели.',
-      'An HTTPS request through the current VPN without account data. Any HTTP response confirms connectivity, not that the model works.');
+      'HTTPS-запрос через указанный HTTP-прокси (или текущий VPN) без данных аккаунта. Любой HTTP-ответ подтверждает соединение.',
+      'An HTTPS request through the configured HTTP proxy (or current VPN) without account data. Any HTTP response confirms connectivity.');
   String get antigravityChecking => _t('Проверка…', 'Checking…');
+  String get antigravityProxyAuthFailed =>
+      _t('Ошибка авторизации прокси (HTTP 407): проверьте логин и пароль', 'Proxy authentication failed (HTTP 407): check username and password');
   String get antigravityRegionBlocked =>
       _t('Сервер сообщает: регион не поддерживается', 'The server reports an unsupported location');
   String antigravityLatency(int ms) => _t('$ms мс', '$ms ms');
   String get antigravityClientNote => _t(
-      'Сетевой режим не изменяет клиентскую проверку ineligible. При региональном отказе выберите сервер в поддерживаемой стране и переподключитесь.',
-      'Network mode does not change the client-side ineligible check. For a location error, choose a server in a supported country and reconnect.');
+      'Сетевой режим не изменяет клиентскую проверку ineligible. При региональном отказе выберите прокси или сервер в поддерживаемой стране.',
+      'Network mode does not change the client-side ineligible check. For a location error, choose a proxy or server in a supported country.');
 
   // ---- SSH client (Windows only, opt-in)
   String get sshFeatureTitle => _t('SSH-клиент (Терминал и SFTP)', 'SSH client (Terminal & SFTP)');

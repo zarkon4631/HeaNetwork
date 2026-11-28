@@ -59,15 +59,46 @@ mixin AppStateConnection on AppStateBase {
   @override
   int? activeMixedPort;
 
+  /// The dedicated HTTP proxy the running core is currently using for
+  /// Antigravity (either standalone or alongside the main VPN).
+  AntigravityProxy? activeAntigravityProxy;
+
+  /// Last error from starting or running the standalone Antigravity proxy.
+  String? antigravityError;
+
   ClashApi? _clash;
   StreamSubscription<TrafficSample>? _trafficSub;
   StreamSubscription<String>? _logSub;
   CoreStatus _lastStatus = CoreStatus.stopped;
   Timer? _subscriptionTimer;
+  Future<void>? _antigravityOp;
+  int _antigravityGen = 0;
 
   bool get isConnected => status == CoreStatus.running;
   bool get isBusy =>
       status == CoreStatus.starting || status == CoreStatus.stopping;
+
+  /// Whether the dedicated Antigravity HTTP proxy is currently active in the
+  /// running core (either standalone or embedded in the main VPN).
+  bool get antigravityProxyRunning =>
+      core.status == CoreStatus.running &&
+      activeAntigravityProxy != null &&
+      (coreRole == CoreRole.antigravity ||
+          (coreRole == CoreRole.vpn &&
+              (activeMode == ConnectionMode.tun || elevated)));
+
+  /// Whether the standalone Antigravity proxy is starting or stopping.
+  bool get antigravityProxyBusy =>
+      coreRole == CoreRole.antigravity &&
+      (core.status == CoreStatus.starting || core.status == CoreStatus.stopping);
+
+  /// Whether Antigravity is running in standalone mode (main VPN is off).
+  bool get antigravityStandaloneRunning =>
+      coreRole == CoreRole.antigravity && core.status == CoreStatus.running;
+
+  /// Transparent per-process Antigravity routing on Windows uses a TUN adapter,
+  /// which requires administrator rights.
+  bool get antigravityNeedsElevation => isWindows && !elevated;
 
   void _onCoreLine(String line) {
     if (logHintOf(line) != LogHint.reality) return;
@@ -134,6 +165,16 @@ mixin AppStateConnection on AppStateBase {
     if ((connect || settings.autoConnect) && status == CoreStatus.stopped) {
       try {
         await this.connect();
+      } on ElevationRequired {
+        // Never raise a UAC prompt unasked at startup.
+      }
+    }
+    if (isWindows &&
+        settings.hasActiveAntigravityProxy &&
+        elevated &&
+        core.status == CoreStatus.stopped) {
+      try {
+        await startAntigravityProxy();
       } on ElevationRequired {
         // Never raise a UAC prompt unasked at startup.
       }
@@ -231,6 +272,7 @@ mixin AppStateConnection on AppStateBase {
         unawaited(store.saveSettings());
       }
       activeMode = ConnectionMode.tun;
+      coreRole = CoreRole.vpn;
       if (port > 0) {
         final clash = ClashApi(port, secret);
         // The note may name a core that is gone (the service restarted its
@@ -303,12 +345,6 @@ mixin AppStateConnection on AppStateBase {
     // counter and every step below gives up, and the deferred note delete
     // of a disconnect before it must not touch this connection's note.
     final gen = ++_connectGen;
-    if (status == CoreStatus.stopping) {
-      // A connect that lands while the core is stopping would otherwise be
-      // dropped on the floor. [CoreController.stop] waits for the stop.
-      await core.stop();
-    }
-    if (status != CoreStatus.stopped) return;
     error = null;
     final profile = selectedProfile;
     if (profile == null) {
@@ -317,6 +353,25 @@ mixin AppStateConnection on AppStateBase {
       return;
     }
     if (_needsElevation) throw ElevationRequired();
+
+    // If the core is running only for the standalone Antigravity HTTP proxy,
+    // stop that lightweight instance so the full VPN config (which carries the
+    // Antigravity HTTP proxy outbound alongside the VPN) can take over.
+    if (coreRole == CoreRole.antigravity) {
+      ++_antigravityGen;
+      if (core.status != CoreStatus.stopped) await core.stop();
+      final pendingAg = _antigravityOp;
+      if (pendingAg != null) await pendingAg;
+      if (gen != _connectGen) return;
+      coreRole = CoreRole.none;
+      activeAntigravityProxy = null;
+    }
+    if (core.status == CoreStatus.stopping) {
+      // A connect that lands while the core is stopping would otherwise be
+      // dropped on the floor. [CoreController.stop] waits for the stop.
+      await core.stop();
+    }
+    if (core.status != CoreStatus.stopped) return;
 
     _connectingSince = DateTime.now();
     var connected = false;
@@ -339,8 +394,14 @@ mixin AppStateConnection on AppStateBase {
 
       pendingRestart = false;
       appliedFingerprint = coreFingerprint();
+      coreRole = CoreRole.vpn;
       activeMode = isAndroid ? ConnectionMode.tun : settings.mode;
       activeMixedPort = mixedPort;
+      activeAntigravityProxy =
+          isWindows && settings.hasActiveAntigravityProxy
+              ? settings.parsedAntigravityProxy
+              : null;
+      antigravityError = null;
       await _startDespiteRouting(config);
       await _leaveDeafStack(config, gen);
       if (gen != _connectGen) throw CoreCancelled();
@@ -367,9 +428,18 @@ mixin AppStateConnection on AppStateBase {
     if (!connected) {
       activeMode = null;
       activeMixedPort = null;
+      activeAntigravityProxy = null;
+      coreRole = CoreRole.none;
       // The core came up and a later step failed: it does not stay up behind
       // the error, with the system half pointed at it.
-      if (status == CoreStatus.running) await _abandon();
+      if (core.status == CoreStatus.running) await _abandon();
+      if (gen == _connectGen &&
+          isWindows &&
+          settings.hasActiveAntigravityProxy &&
+          elevated &&
+          core.status == CoreStatus.stopped) {
+        unawaited(_startAntigravityInternal());
+      }
     }
     notifyListeners();
   }
@@ -466,10 +536,9 @@ mixin AppStateConnection on AppStateBase {
   /// accepting connections, and a connection made into it gets nowhere.
   Future<bool> _tunnelTakesNothing() async {
     final check = tunnelCheck;
-    if (check == null ||
-        !isWindows ||
-        settings.mode != ConnectionMode.tun ||
-        settings.tunStack == 'gvisor') {
+    final hasTun = settings.mode == ConnectionMode.tun ||
+        (settings.hasActiveAntigravityProxy && elevated);
+    if (check == null || !isWindows || !hasTun || settings.tunStack == 'gvisor') {
       return false;
     }
     return !await check();
@@ -477,16 +546,24 @@ mixin AppStateConnection on AppStateBase {
 
   /// Disconnects, or calls off a connection that is still being set up.
   @override
-  Future<void> disconnect() async {
+  Future<void> disconnect({bool keepAntigravity = true}) async {
     // Whatever [connect] is still mid-flight stops at its next step instead
     // of bringing the core back up behind the user's back.
     final gen = ++_connectGen;
+    if (!keepAntigravity) ++_antigravityGen;
+    if (coreRole == CoreRole.antigravity && keepAntigravity) {
+      // Main VPN is already off; leave the standalone Antigravity proxy alone.
+      return;
+    }
     routingProblem = null;
     stackSwitched = false;
     _stopStats();
     _restoreProxy();
     await core.stop();
     activeMode = null;
+    activeMixedPort = null;
+    activeAntigravityProxy = null;
+    coreRole = CoreRole.none;
     pendingRestart = false;
     if (isAndroid) {
       // The note about the running core is only good while one runs; it
@@ -506,6 +583,13 @@ mixin AppStateConnection on AppStateBase {
       }());
     }
     notifyListeners();
+    if (keepAntigravity &&
+        isWindows &&
+        settings.hasActiveAntigravityProxy &&
+        elevated &&
+        gen == _connectGen) {
+      await _startAntigravityInternal();
+    }
   }
 
   /// A connection is being set up and can be called off.
@@ -519,14 +603,14 @@ mixin AppStateConnection on AppStateBase {
   /// [ElevationRequired], the tray and autostart included, uses this one.
   /// `--elevated` lets the new copy past the single-instance guard while
   /// this one is still closing.
-  Future<void> restartElevated() async {
+  Future<void> restartElevated({bool connect = true}) async {
     // A connection in use is taken down first, so that the two do not share
     // a core, and the settings are flushed so that it starts with what is
     // on screen.
-    await disconnect();
+    await disconnect(keepAntigravity: false);
     await store.flush();
     if (win32.shellExecute(Platform.resolvedExecutable,
-        verb: 'runas', args: elevatedArguments(const [], connect: true))) {
+        verb: 'runas', args: elevatedArguments(const [], connect: connect))) {
       exit(0);
     }
   }
@@ -552,13 +636,220 @@ mixin AppStateConnection on AppStateBase {
   Future<void> reconnect() async {
     if (status != CoreStatus.running) return;
     if (_needsElevation) throw ElevationRequired();
-    await disconnect();
+    await disconnect(keepAntigravity: false);
     // A [connect] this one just called off may still be finishing; let it
     // end before a new one starts, or the new one would wait behind it and
     // do nothing.
     final windingDown = _connecting;
     if (windingDown != null) await windingDown;
     await connect();
+  }
+
+  // ---- standalone Antigravity HTTP proxy ----------------------------------
+
+  Map<String, dynamic> _antigravityConfigFor(
+    AntigravityProxy proxy, {
+    required int clashPort,
+    required String clashSecret,
+    String? tunStackOverride,
+  }) =>
+      buildAntigravityProxyConfig(
+        proxy: proxy,
+        settings: tunStackOverride == null
+            ? settings
+            : (AppSettings.fromJson(settings.toJson())..tunStack = tunStackOverride),
+        env: BuildEnv(
+          platform: platform,
+          ruleSetDir: paths.ruleSets.path.replaceAll('\\', '/'),
+          cacheFile: '${paths.run.path}/cache.db'.replaceAll('\\', '/'),
+          clashPort: clashPort,
+          clashSecret: clashSecret,
+          elevated: elevated,
+          corePath: paths.corePath,
+        ),
+      );
+
+  /// Starts (or restarts) the standalone Antigravity HTTP proxy when the main
+  /// VPN is disconnected, or reconnects the live VPN so it picks up changes.
+  Future<void> startAntigravityProxy() async {
+    if (!isWindows || !settings.hasActiveAntigravityProxy) return;
+    if (!elevated) throw ElevationRequired();
+    if (isConnected) {
+      if (activeAntigravityProxy != settings.parsedAntigravityProxy) {
+        await reconnect();
+      }
+      return;
+    }
+    if (_connecting != null) return;
+    await _startAntigravityInternal();
+  }
+
+  Future<void> _startAntigravityInternal() async {
+    final proxy = settings.parsedAntigravityProxy;
+    if (!isWindows || !settings.hasActiveAntigravityProxy || proxy == null || !elevated) {
+      return;
+    }
+    final gen = ++_antigravityGen;
+    final previous = _antigravityOp;
+    if (previous != null) {
+      if (coreRole == CoreRole.antigravity && core.status != CoreStatus.stopped) {
+        await core.stop();
+      }
+      await previous;
+    }
+    if (gen != _antigravityGen || _connecting != null || isConnected) return;
+
+    final done = Completer<void>();
+    _antigravityOp = done.future;
+    try {
+      if (coreRole == CoreRole.antigravity && core.status != CoreStatus.stopped) {
+        await core.stop();
+      }
+      if (gen != _antigravityGen || core.status != CoreStatus.stopped) return;
+
+      antigravityError = null;
+      coreRole = CoreRole.antigravity;
+      activeAntigravityProxy = proxy;
+      notifyListeners();
+
+      final clashPort = await freeTcpPort();
+      final secret = newApiSecret();
+      Map<String, dynamic> config({String? stack}) => _antigravityConfigFor(
+            proxy,
+            clashPort: clashPort,
+            clashSecret: secret,
+            tunStackOverride: stack,
+          );
+      if (gen != _antigravityGen) throw CoreCancelled();
+
+      await _startCore(config());
+      if (gen != _antigravityGen) throw CoreCancelled();
+
+      final check = tunnelCheck;
+      if (check != null && settings.tunStack != 'gvisor' && !await check()) {
+        if (gen != _antigravityGen) throw CoreCancelled();
+        var better = false;
+        try {
+          await core.stop();
+          if (gen != _antigravityGen) throw CoreCancelled();
+          coreRole = CoreRole.antigravity;
+          activeAntigravityProxy = proxy;
+          await _startCore(config(stack: 'gvisor'));
+          better = await check();
+        } finally {
+          if (better) {
+            stackSwitched = true;
+            settings.tunStack = 'gvisor';
+            configRevision++;
+            unawaited(store.saveSettings());
+          }
+        }
+      }
+    } on CoreCancelled {
+      if (coreRole == CoreRole.antigravity && core.status != CoreStatus.running) {
+        coreRole = CoreRole.none;
+        activeAntigravityProxy = null;
+      }
+    } on CoreStartTimeout catch (e) {
+      antigravityError = '$errorStartTimeout${e.limit.inSeconds}';
+      coreRole = CoreRole.none;
+      activeAntigravityProxy = null;
+      if (core.status == CoreStatus.running) await core.stop();
+    } on CoreException catch (e) {
+      antigravityError = e.message;
+      coreRole = CoreRole.none;
+      activeAntigravityProxy = null;
+      if (core.status == CoreStatus.running) await core.stop();
+    } on Object catch (e) {
+      debugPrint('HeaNetwork: antigravity proxy failed: $e');
+      antigravityError = '$e';
+      coreRole = CoreRole.none;
+      activeAntigravityProxy = null;
+      if (core.status == CoreStatus.running) await core.stop();
+    } finally {
+      if (identical(_antigravityOp, done.future)) _antigravityOp = null;
+      done.complete();
+      notifyListeners();
+    }
+  }
+
+  /// Stops the standalone Antigravity proxy core, if it is running.
+  Future<void> stopAntigravityProxy() async {
+    ++_antigravityGen;
+    if (coreRole != CoreRole.antigravity) return;
+    await core.stop();
+    final pending = _antigravityOp;
+    if (pending != null) await pending;
+    if (coreRole == CoreRole.antigravity) {
+      coreRole = CoreRole.none;
+      activeAntigravityProxy = null;
+      notifyListeners();
+    }
+  }
+
+  /// Saves and applies the dedicated Antigravity HTTP proxy.
+  ///
+  /// When [enabled] is true, [rawInput] must parse as an [AntigravityProxy]
+  /// (otherwise [FormatException] is thrown). On Windows without administrator
+  /// rights, settings are saved first and [ElevationRequired] is thrown so the
+  /// UI can offer to restart elevated and start the proxy immediately.
+  Future<void> applyAntigravityProxy(
+    String rawInput, {
+    required bool enabled,
+  }) async {
+    if (enabled) {
+      final parsed = AntigravityProxy.tryParse(rawInput);
+      if (parsed == null) throw const FormatException('invalid-antigravity-proxy');
+      settings.antigravityProxy = parsed.raw;
+      settings.antigravityProxyEnabled = true;
+      antigravityError = null;
+      configRevision++;
+      await store.saveSettings();
+      if (isWindows && !elevated) {
+        if (isConnected) noteCoreChange();
+        notifyListeners();
+        throw ElevationRequired();
+      }
+      notifyListeners();
+      if (isConnected) {
+        await reconnect();
+      } else {
+        await startAntigravityProxy();
+      }
+      return;
+    }
+
+    final trimmed = rawInput.trim();
+    final parsed = AntigravityProxy.tryParse(trimmed);
+    settings.antigravityProxy = parsed?.raw ?? trimmed;
+    settings.antigravityProxyEnabled = false;
+    antigravityError = null;
+    configRevision++;
+    await store.saveSettings();
+    notifyListeners();
+    if (coreRole == CoreRole.antigravity) {
+      await stopAntigravityProxy();
+    } else if (isConnected) {
+      await reconnect();
+    }
+  }
+
+  /// Enables or disables the Antigravity feature from Settings, stopping any
+  /// standalone Antigravity core when turned off or starting it when turned on.
+  Future<void> setAntigravityEnabled(bool value) async {
+    settings.antigravityEnabled = value;
+    antigravityError = null;
+    settingsChanged(affectsCore: true);
+    if (!value && coreRole == CoreRole.antigravity) {
+      await stopAntigravityProxy();
+    } else if (value &&
+        isWindows &&
+        settings.hasActiveAntigravityProxy &&
+        elevated &&
+        !isConnected &&
+        core.status == CoreStatus.stopped) {
+      unawaited(startAntigravityProxy());
+    }
   }
 
   void _startStats() {
@@ -635,11 +926,20 @@ mixin AppStateConnection on AppStateBase {
       unawaited(_attachToRunning());
     }
     if (_lastStatus == CoreStatus.running && now == CoreStatus.stopped) {
-      // The core died under us: do not leave the system pointing at it.
-      _stopStats();
-      _restoreProxy();
-      activeMode = null;
-      if (core.lastError != null) error = core.lastError;
+      if (coreRole == CoreRole.antigravity) {
+        coreRole = CoreRole.none;
+        activeAntigravityProxy = null;
+        if (core.lastError != null) antigravityError = core.lastError;
+      } else {
+        // The core died under us: do not leave the system pointing at it.
+        _stopStats();
+        _restoreProxy();
+        activeMode = null;
+        activeMixedPort = null;
+        activeAntigravityProxy = null;
+        coreRole = CoreRole.none;
+        if (core.lastError != null) error = core.lastError;
+      }
     }
     _lastStatus = now;
     notifyListeners();

@@ -233,6 +233,160 @@ class PortForward {
       );
 }
 
+/// A dedicated HTTP(S) proxy for Antigravity, independent of the main VPN.
+///
+/// Accepts `user:pass@host:port`, `http://user:pass@host:port`,
+/// `https://user:pass@host:port`, `host:port`, and bracketed IPv6 hosts.
+class AntigravityProxy {
+  const AntigravityProxy({
+    required this.host,
+    required this.port,
+    this.username = '',
+    this.password = '',
+    this.tls = false,
+  });
+
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+  final bool tls;
+
+  /// Display address without credentials (safe for status tiles and logs).
+  String get endpoint {
+    final h = host.contains(':') ? '[$host]' : host;
+    return '${tls ? 'https://' : ''}$h:$port';
+  }
+
+  /// Canonical form persisted in settings.
+  String get raw {
+    final h = host.contains(':') ? '[$host]' : host;
+    final auth = username.isEmpty && password.isEmpty
+        ? ''
+        : (password.isEmpty ? '$username@' : '$username:$password@');
+    return '${tls ? 'https://' : ''}$auth$h:$port';
+  }
+
+  Map<String, dynamic> toOutbound({required String tag}) => {
+        'type': 'http',
+        'tag': tag,
+        'server': host,
+        'server_port': port,
+        if (username.isNotEmpty) 'username': username,
+        if (password.isNotEmpty) 'password': password,
+        if (tls) 'tls': {'enabled': true, 'server_name': host},
+      };
+
+  static String _decodePart(String s) {
+    try {
+      return Uri.decodeComponent(s);
+    } on ArgumentError {
+      return s;
+    }
+  }
+
+  /// Parses an HTTP(S) proxy string, or returns null when empty or malformed.
+  static AntigravityProxy? tryParse(String input) {
+    var rest = input.trim();
+    if (rest.isEmpty) return null;
+
+    var tls = false;
+    var hasScheme = false;
+    final schemeEnd = rest.indexOf('://');
+    if (schemeEnd >= 0) {
+      final scheme = rest.substring(0, schemeEnd).toLowerCase();
+      if (scheme != 'http' && scheme != 'https') return null;
+      tls = scheme == 'https';
+      hasScheme = true;
+      rest = rest.substring(schemeEnd + 3);
+    }
+
+    // Drop any trailing path/query/fragment after the host part.
+    final at = rest.lastIndexOf('@');
+    final slash = rest.indexOf('/', at < 0 ? 0 : at);
+    if (slash >= 0) rest = rest.substring(0, slash);
+    final qm = rest.indexOf('?', at < 0 ? 0 : at);
+    if (qm >= 0) rest = rest.substring(0, qm);
+    final hash = rest.indexOf('#', at < 0 ? 0 : at);
+    if (hash >= 0) rest = rest.substring(0, hash);
+
+    var username = '';
+    var password = '';
+    var authority = rest;
+    if (at >= 0) {
+      var creds = rest.substring(0, at);
+      authority = rest.substring(at + 1);
+      final sep = creds.indexOf(':');
+      if (sep < 0) {
+        username = hasScheme ? _decodePart(creds) : creds;
+      } else {
+        final u = creds.substring(0, sep);
+        final p = creds.substring(sep + 1);
+        username = hasScheme ? _decodePart(u) : u;
+        password = hasScheme ? _decodePart(p) : p;
+      }
+    }
+
+    if (authority.isEmpty) return null;
+
+    String host;
+    String portSpec = '';
+    if (authority.startsWith('[')) {
+      final close = authority.indexOf(']');
+      if (close < 0) return null;
+      host = authority.substring(1, close).trim();
+      final tail = authority.substring(close + 1);
+      if (tail.isNotEmpty) {
+        if (!tail.startsWith(':')) return null;
+        portSpec = tail.substring(1);
+      }
+    } else {
+      final colon = authority.lastIndexOf(':');
+      if (colon >= 0) {
+        host = authority.substring(0, colon).trim();
+        portSpec = authority.substring(colon + 1).trim();
+      } else {
+        host = authority.trim();
+      }
+    }
+
+    if (host.isEmpty || RegExp(r'\s').hasMatch(host)) return null;
+    // Bare IPv6 without brackets cannot be told apart from host:port.
+    if (!authority.startsWith('[') && host.contains(':')) return null;
+
+    final int port;
+    if (portSpec.isEmpty) {
+      if (!hasScheme) return null;
+      port = tls ? 443 : 80;
+    } else {
+      if (!RegExp(r'^\d{1,5}$').hasMatch(portSpec)) return null;
+      final parsed = int.tryParse(portSpec);
+      if (parsed == null || parsed <= 0 || parsed > 65535) return null;
+      port = parsed;
+    }
+
+    return AntigravityProxy(
+      host: host,
+      port: port,
+      username: username,
+      password: password,
+      tls: tls,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AntigravityProxy &&
+      other.host == host &&
+      other.port == port &&
+      other.username == username &&
+      other.password == password &&
+      other.tls == tls;
+
+  @override
+  int get hashCode => Object.hash(host, port, username, password, tls);
+}
+
 class AppSettings {
   AppSettings({
     this.locale = 'system',
@@ -266,6 +420,8 @@ class AppSettings {
     this.sshTerminalTheme = 'default',
     this.sshHighlightKeywords = true,
     this.antigravityEnabled = false,
+    this.antigravityProxy = '',
+    this.antigravityProxyEnabled = false,
   })  : antiDpi = antiDpi ?? AntiDpiSettings(),
         portForwards = portForwards ?? [],
         installId = installId ?? newId() + newId();
@@ -331,6 +487,20 @@ class AppSettings {
   /// Windows-only Antigravity routing page and its built-in core rules.
   bool antigravityEnabled;
 
+  /// Dedicated HTTP(S) proxy for Antigravity (`user:pass@host:port`).
+  String antigravityProxy;
+
+  /// Route Antigravity through [antigravityProxy] independently of the main VPN.
+  bool antigravityProxyEnabled;
+
+  AntigravityProxy? get parsedAntigravityProxy =>
+      AntigravityProxy.tryParse(antigravityProxy);
+
+  bool get hasActiveAntigravityProxy =>
+      antigravityEnabled &&
+      antigravityProxyEnabled &&
+      parsedAntigravityProxy != null;
+
   Map<String, dynamic> toJson() => {
         'locale': locale,
         'themeMode': themeMode,
@@ -363,6 +533,8 @@ class AppSettings {
         if (sshTerminalTheme != 'default') 'sshTerminalTheme': sshTerminalTheme,
         if (!sshHighlightKeywords) 'sshHighlightKeywords': false,
         if (antigravityEnabled) 'antigravityEnabled': true,
+        if (antigravityProxy.isNotEmpty) 'antigravityProxy': antigravityProxy,
+        if (antigravityProxyEnabled) 'antigravityProxyEnabled': true,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -407,6 +579,8 @@ class AppSettings {
             : 'default',
         sshHighlightKeywords: j['sshHighlightKeywords'] as bool? ?? true,
         antigravityEnabled: j['antigravityEnabled'] as bool? ?? false,
+        antigravityProxy: j['antigravityProxy'] as String? ?? '',
+        antigravityProxyEnabled: j['antigravityProxyEnabled'] as bool? ?? false,
       );
 }
 
